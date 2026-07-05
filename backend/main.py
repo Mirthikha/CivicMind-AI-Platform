@@ -393,32 +393,21 @@ async def get_all_complaints():
 
 @app.get("/api/complaints/department/{dept}")
 async def get_dept_complaints(dept: str):
-    """
-    Officials get complaints for their specific department.
-    """
     try:
-        # 1. Fetch complaints by department without ordering (avoids database errors)
-        docs = db.collection('complaints').where(
-            filter=firestore.FieldFilter('department', '==', dept)
-        ).limit(50).stream()
+        # If admin supervising account, fetch everything directly
+        if dept == "All Departments" or dept == "All":
+            docs = db.collection('complaints').limit(50).stream()
+        else:
+            docs = db.collection('complaints').where(
+                filter=firestore.FieldFilter('department', '==', dept)
+            ).limit(50).stream()
 
         complaints = [doc.to_dict() for doc in docs]
-
-        # 2. Sort the list manually using Python memory by priority_score descending
         complaints.sort(key=lambda x: x.get('priority_score', 0), reverse=True)
 
-        return JSONResponse({
-            "success": True,
-            "department": dept,
-            "complaints": complaints,
-            "total": len(complaints)
-        })
-
+        return JSONResponse({"success": True, "department": dept, "complaints": complaints})
     except Exception as e:
-        return JSONResponse(
-            {"success": False, "error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
 # ═══════════════════════════════════════════════════════
@@ -467,23 +456,23 @@ async def get_dashboard_data():
         total_budget_max = 0
 
         for c in all_complaints:
-            # Status counts
-            status = c.get('status', 'submitted')
+            status = c.get('status', 'submitted') or 'submitted'
             by_status[status] = by_status.get(status, 0) + 1
 
-            # Department counts
-            dept = c.get('department', 'other')
+            dept = c.get('department', 'other') or 'other'
             by_dept[dept] = by_dept.get(dept, 0) + 1
 
-            # Priority counts
+            # Secure safe fallback string loop if level is missing or None
             level = c.get('priority_level', 'low')
+            if not level: 
+                level = 'low'
+            level = level.lower()
             if level in by_priority:
                 by_priority[level] += 1
 
-            # Budget totals
             total_budget_min += c.get('budget_min', 0) or 0
             total_budget_max += c.get('budget_max', 0) or 0
-
+            
         # Cross-department alerts
         cross_dept_alerts = [
             c for c in all_complaints
