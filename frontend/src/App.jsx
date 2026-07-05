@@ -205,12 +205,17 @@ function Shell({ type = "citizen", children }) {
   const [official, , clearOfficial] = useStoredUser("civicmind_official");
   const isOfficial = type === "official";
   const user = isOfficial ? official : citizen;
+
+  // 1. Safe extraction with optional chaining to prevent crash states
+  const currentDept = official?.department || "";
+
+  // 2. Build link routing dynamically without broken variables
   const links = isOfficial
     ? [
         ["/official/dashboard", "Dashboard"],
         ["/official/complaints", "Complaints"],
-        // Only include the Department tab if they are NOT the global supervising admin
-        ...(currentDept !== "All Departments" && currentDept !== "All" 
+        // Hide the department view tab ONLY for the supervising Admin account
+        ...(currentDept && currentDept !== "All Departments" && currentDept !== "All" 
           ? [["/official/department", "Department"]] 
           : []),
         ["/official/alerts", "Alerts"],
