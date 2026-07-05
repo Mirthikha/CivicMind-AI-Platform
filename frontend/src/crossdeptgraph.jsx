@@ -357,7 +357,7 @@ export default function CrossDeptGraph() {
     try {
       setLoading(true);
       const res = await axios.get(
-        'http://localhost:8000/api/graph/cross-department'
+        ''https://civicmind-ai-platform.onrender.com/api/graph/cross-department''
       );
 
       if (res.data.success) {
