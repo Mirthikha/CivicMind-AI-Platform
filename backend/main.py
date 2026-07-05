@@ -132,10 +132,19 @@ async def official_login(credentials: dict):
 
 @app.get("/api/auth/citizen-complaints/{citizen_id}")
 async def get_citizen_complaints(citizen_id: str):
-    # Fetch complaints from firestore specific to this citizen or return all
-    docs = db.collection('complaints').limit(10).stream()
-    complaints = [doc.to_dict() for doc in docs]
-    return {"complaints": complaints}
+    try:
+        # Filter where the citizen_contact matches the logged-in citizen's identifier
+        docs = db.collection('complaints').where(
+            filter=firestore.FieldFilter('citizen_contact', '==', citizen_id)
+        ).limit(10).stream()
+        
+        complaints = [doc.to_dict() for doc in docs]
+        return {"complaints": complaints}
+        
+    except Exception as e:
+        # Fallback to empty list or search by citizen_name if needed
+        print(f"[Backend] Error filtering complaints: {e}")
+        return {"complaints": []}
 
 # ═══════════════════════════════════════════════════════
 # PUBLIC ENDPOINTS (Citizens use these)
