@@ -22,14 +22,23 @@ load_dotenv()
 # Initialize Firebase
 # ─────────────────────────────────────────
 if not firebase_admin._apps:
-    cred_path = os.path.join(
-        os.path.dirname(os.path.abspath(__file__)),
-        "firebase_credentials.json"
-    )
+    # 1. Try Render's absolute secure container path first
+    cred_path = "/etc/secrets/firebase_credentials.json"
+    
+    # 2. If not there, check the root project directory (where Render drops non-Docker secrets)
+    if not os.path.exists(cred_path):
+        BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        cred_path = os.path.join(BASE_DIR, "firebase_credentials.json")
+        
+    # 3. Local fallback: check inside the backend directory itself
+    if not os.path.exists(cred_path):
+        cred_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "firebase_credentials.json"
+        )
+        
     cred = credentials.Certificate(cred_path)
     firebase_admin.initialize_app(cred)
-
-db = firestore.client()
 
 # ─────────────────────────────────────────
 # Import All Agents
