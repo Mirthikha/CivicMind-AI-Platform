@@ -1136,11 +1136,11 @@ function ComplaintTable({ complaints, expanded, setExpanded, onUpdate, compact =
             <Fragment key={item.id}>
               <tr>
                 <td><span className="id-badge">{item.id}</span></td>
-                <td>{item.problem}</td>
+                <td>{item.problem || item.specific_problem}</td>
                 <td>{item.location}</td>
                 <td><Badge tone="info">{item.department}</Badge></td>
-                <td><Badge tone={priorityTone(item.priority)}>{priorityLabels[item.priority] || item.priority}</Badge></td>
-                <td>{item.budget}</td>
+                <td><Badge tone={priorityTone(item.priority_level)}>{priorityLabels[item.priority_level] || item.priority_level}</Badge></td>
+                <td>{item.budget_range || "Under Review"}</td>
                 <td><Badge tone={statusColors[item.status] || "muted"}>{statusLabels[item.status] || item.status}</Badge></td>
                 {!compact && <td><button className="button button-soft small" onClick={() => onUpdate ? onUpdate(item) : setExpanded(expanded === item.id ? "" : item.id)}>Update Status</button></td>}
               </tr>
@@ -1148,7 +1148,7 @@ function ComplaintTable({ complaints, expanded, setExpanded, onUpdate, compact =
                 <tr className="expand-row">
                   <td colSpan="8">
                     <p><strong>AI explanation:</strong> {item.explanation}</p>
-                    <p><strong>Root cause hypothesis:</strong> {item.root_cause}</p>
+                    <p><strong>Root cause hypothesis:</strong> {item.root_cause && typeof item.root_cause === 'object' ? item.root_cause.root_cause : item.root_cause}</p>
                     <p><strong>Recommended action:</strong> {item.recommended_action}</p>
                     <p><strong>Departments involved:</strong> {item.departments_involved?.join(", ")}</p>
                   </td>
