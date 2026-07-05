@@ -87,21 +87,13 @@ class IntelligenceAgent:
         self, intake_result: dict
     ) -> list:
         """
-        Search Firebase for complaints in same area
-        filed in the last 30 days.
+        Search Firebase for complaints in the same area across ALL departments.
         """
         try:
             complaints_ref = self.db.collection('complaints')
 
-            # Single filter only - avoids composite index requirement
-            query = complaints_ref.where(
-                filter=firestore.FieldFilter(
-                    'department', '==',
-                    intake_result.get('department', 'other')
-                )
-            ).limit(20)
-
-            docs = query.stream()
+            # FIX: Remove the restrictive department query filter to allow cross-dept lookups
+            docs = complaints_ref.limit(50).stream()
             similar = []
 
             # Words to ignore when comparing locations
@@ -120,6 +112,10 @@ class IntelligenceAgent:
 
                 # Skip already resolved complaints
                 if data.get('status') == 'resolved':
+                    continue
+                    
+                # Skip comparing a complaint against itself
+                if doc.id == intake_result.get('id'):
                     continue
 
                 existing_words = (
