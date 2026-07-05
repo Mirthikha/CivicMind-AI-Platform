@@ -29,10 +29,11 @@ import {
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import CrossDeptGraph from './CrossDeptGraph';
 
 const API_BASE = "https://civicmind-ai-platform.onrender.com";
 
-const api = axios.create({
+export const api = axios.create({
   baseURL: API_BASE,
   timeout: 30000
 });
@@ -208,7 +209,10 @@ function Shell({ type = "citizen", children }) {
     ? [
         ["/official/dashboard", "Dashboard"],
         ["/official/complaints", "Complaints"],
-        ["/official/department", "Department"],
+        // Only include the Department tab if they are NOT the global supervising admin
+        ...(currentDept !== "All Departments" && currentDept !== "All" 
+          ? [["/official/department", "Department"]] 
+          : []),
         ["/official/alerts", "Alerts"],
         ["/official/ratings", "Ratings"]
       ]
@@ -437,9 +441,13 @@ function CitizenDashboard({ showToast }) {
   const navigate = useNavigate();
 
   useEffect(() => {
-    let active = true;
-    api.get(`/api/auth/citizen-complaints/${citizen.id}`)
-      .then(({ data }) => active && setComplaints(data.complaints || data || []))
+  let active = true;
+  
+  // Safeguard lookup to use your actual contact phone string instead of an auto-generated token ID
+  const searchIdentifier = citizen.phone || citizen.id;
+
+  api.get(`/api/auth/citizen-complaints/${searchIdentifier}`)
+    .then(({ data }) => active && setComplaints(data.complaints || data || []))
       .catch(() => active && setComplaints(fallbackComplaints.slice(0, 2)))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
@@ -955,37 +963,18 @@ function DepartmentView() {
   );
 }
 function CrossDeptAlerts() {
-  const [alerts, setAlerts] = useState([]);
-
-  useEffect(() => {
-    api.get("/api/officials/dashboard")
-      .then(({ data }) => setAlerts(data.cross_dept_alerts || []))
-      .catch(() => setAlerts(demoAlerts));
-  }, []);
-
   return (
     <Shell type="official">
-      <PageHeader title="Cross-Department Intelligence" subtitle="Complaints linked by AI root cause analysis" />
-      {alerts.length ? (
-        <div className="alerts-list">
-          {alerts.map((alert, index) => <LinkedAlert key={index} alert={alert} />)}
-        </div>
-      ) : (
-        <EmptyState icon={<Sparkles />} title="No cross-department issues detected" subtext="All complaints are isolated incidents" />
-      )}
+      <PageHeader 
+        title="Cross-Department Intelligence Graph" 
+        subtitle="AI-detected asset intersections sharing an underlying root cause infrastructure issue" 
+      />
+      <div style={{ background: 'white', padding: '24px', borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.05)', marginTop: '20px' }}>
+        <CrossDeptGraph />
+      </div>
     </Shell>
   );
 }
-
-const demoAlerts = [
-  {
-    root_cause: "Water leakage may be weakening road surface near a high-traffic lane.",
-    confidence: 86,
-    departments: ["Water", "Roads", "Traffic"],
-    recommended_action: "Coordinate pipe repair before road resurfacing.",
-    linked_complaints: fallbackComplaints
-  }
-];
 
 function OfficialRatings() {
   return (
