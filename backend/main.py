@@ -399,15 +399,27 @@ async def get_all_complaints():
 @app.get("/api/complaints/department/{dept}")
 async def get_dept_complaints(dept: str):
     try:
+        # Standardize formatting to capitalize the first letter (e.g., "water" -> "Water")
+        formatted_dept = dept.strip().capitalize()
+
         # If admin supervising account, fetch everything directly
-        if dept == "All Departments" or dept == "All":
+        if formatted_dept == "All Departments" or formatted_dept == "All":
             docs = db.collection('complaints').limit(50).stream()
         else:
+            # Query using the clean capitalized name string
             docs = db.collection('complaints').where(
-                filter=firestore.FieldFilter('department', '==', dept)
+                filter=firestore.FieldFilter('department', '==', formatted_dept)
             ).limit(50).stream()
 
         complaints = [doc.to_dict() for doc in docs]
+        
+        # Double check with a fallback query if the list is empty (catches all lowercase records)
+        if not complaints and formatted_dept != "All":
+            docs_lower = db.collection('complaints').where(
+                filter=firestore.FieldFilter('department', '==', dept.lower())
+            ).limit(50).stream()
+            complaints = [doc.to_dict() for doc in docs_lower]
+
         complaints.sort(key=lambda x: x.get('priority_score', 0), reverse=True)
 
         return JSONResponse({"success": True, "department": dept, "complaints": complaints})
