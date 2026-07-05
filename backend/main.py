@@ -134,7 +134,6 @@ async def official_login(credentials: dict):
             "email": email
         }
     }
-    }
 
 @app.get("/api/auth/citizen-complaints/{citizen_id}")
 async def get_citizen_complaints(citizen_id: str):
