@@ -843,8 +843,6 @@ function OfficialDashboard() {
           </ResponsiveContainer>
         </ChartCard>
       </div>
-      <SectionTitle title="Recent Urgent" />
-      <ComplaintTable complaints={data.complaints.slice(0, 5)} compact />
     </Shell>
   );
 }
