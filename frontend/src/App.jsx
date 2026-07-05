@@ -30,7 +30,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "/api";
 
 const api = axios.create({
   baseURL: API_BASE,

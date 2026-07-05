@@ -61,17 +61,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ─────────────────────────────────────────
-# ROOT
-# ─────────────────────────────────────────
-@app.get("/")
-def root():
-    return {
-        "message": "CivicMind API is running",
-        "version": "1.0.0",
-        "status": "healthy"
-    }
-
 # ═══════════════════════════════════════════════════════
 # AUTHENTICATION MOCKS (To support React login/registration)
 # ═══════════════════════════════════════════════════════
@@ -747,3 +736,32 @@ async def get_cross_department_graph():
             {"success": False, "error": str(e)},
             status_code=500
         )
+
+
+import os
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# 1. Locate the frontend/dist folder relative to this file
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+FRONTEND_DIR = os.path.join(BASE_DIR, "frontend", "dist")
+
+# 2. Mount the compiled assets folder (JS/CSS files)
+if os.path.exists(os.path.join(FRONTEND_DIR, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(FRONTEND_DIR, "assets")), name="assets")
+
+# 3. Create a catch-all route to serve the React interface
+@app.get("/{catchall:path}")
+async def serve_frontend(catchall: str):
+    # Let your API endpoints handle themselves safely
+    if catchall.startswith("api"):
+        return {"detail": "Not Found"}
+        
+    index_path = os.path.join(FRONTEND_DIR, "index.html")
+    if os.path.exists(index_path):
+        return FileResponse(index_path)
+    return {"error": "Frontend build files missing. Make sure dist folder is uploaded."}
+
+
+
+    
