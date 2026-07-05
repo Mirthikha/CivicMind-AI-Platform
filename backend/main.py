@@ -114,12 +114,17 @@ async def citizen_login(credentials: dict):
 
 @app.post("/api/auth/official-login")
 async def official_login(credentials: dict):
-    email = credentials.get("email", "")
-    # Determine department based on mock choices
-    dept = "All Departments"
-    if "water" in email: dept = "Water Department"
-    elif "roads" in email: dept = "Roads Department"
-    elif "electric" in email: dept = "Electricity Department"
+    email = credentials.get("email", "").lower().strip()
+    
+    # Strictly determine department based on the test email accounts
+    if "water" in email:
+        dept = "Water Department"
+    elif "road" in email or "roads" in email:
+        dept = "Roads Department"
+    elif "elec" in email or "electric" in email:
+        dept = "Electricity Department"
+    else:
+        dept = "All Departments"
     
     return {
         "user": {
@@ -128,6 +133,7 @@ async def official_login(credentials: dict):
             "department": dept,
             "email": email
         }
+    }
     }
 
 @app.get("/api/auth/citizen-complaints/{citizen_id}")
@@ -472,7 +478,7 @@ async def get_dashboard_data():
 
             total_budget_min += c.get('budget_min', 0) or 0
             total_budget_max += c.get('budget_max', 0) or 0
-            
+
         # Cross-department alerts
         cross_dept_alerts = [
             c for c in all_complaints

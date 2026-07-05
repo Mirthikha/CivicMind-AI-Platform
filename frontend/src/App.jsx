@@ -393,20 +393,23 @@ function OfficialLogin({ showToast }) {
   const [form, setForm] = useState({ email: "", password: "" });
 
   const submit = async (event) => {
-    event.preventDefault();
-    await run(async () => {
-      const { data } = await api.post("/api/auth/official-login", form);
-      const user = data.user || data.official || data;
-      saveOfficial({
-        name: user.name || "City Official",
-        role: user.role || "official",
-        department: user.department || "All Departments",
-        email: user.email || form.email
-      });
-      showToast("Officials dashboard unlocked");
-      navigate("/official/dashboard");
+  event.preventDefault();
+  await run(async () => {
+    const { data } = await api.post("/api/auth/official-login", form);
+    const user = data.user || data.official || data;
+    
+    // Explicitly lock in the precise department sent by the backend
+    saveOfficial({
+      name: user.name || "City Official",
+      role: user.role || "official",
+      department: user.department,
+      email: user.email || form.email
     });
-  };
+    
+    showToast("Officials dashboard unlocked");
+    navigate("/official/dashboard");
+  });
+};
 
   return (
     <AuthCard title="Officials Portal" subtitle="Authorized personnel only" dark>
