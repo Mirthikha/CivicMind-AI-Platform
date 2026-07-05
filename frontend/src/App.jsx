@@ -900,32 +900,22 @@ function DepartmentView() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Determine the exact clean department name string for filtering
-    const deptName = official?.department || "Water Department";
+    // 1. Get the raw department string from the profile state
+    const deptName = official?.department || "All Departments";
     
-    // Fallback cleaner mapping if backend uses shortened names (e.g. "Water")
+    // 2. Clean it up so "Water Department" becomes "Water"
     const cleanDept = deptName.replace(" Department", "");
 
+    // 3. Make the API call using the clean name
     api.get(`/api/complaints/department/${cleanDept}`)
-  .then(({ data }) => {
-    // Extract the list from the response object
-    const liveComplaints = data.complaints || [];
-
-    // If the database actually has items, use them!
-    if (liveComplaints.length > 0) {
-      setComplaints(liveComplaints);
-    } else {
-      // If the database is empty, pull the matching sample demo items
-      const localFilter = fallbackComplaints.filter(
-        (item) => item.department === cleanDept || deptName === "All Departments"
-      );
-      setComplaints(localFilter);
-    }
-  })
+      .then(({ data }) => {
+        const liveComplaints = data.complaints || [];
+        setComplaints(liveComplaints);
+      })
       .catch(() => {
-        // Safe local filter fallback if backend connection drops
+        // Safe fallback if the backend drops out during the presentation
         const localFilter = fallbackComplaints.filter(
-          (item) => item.department === cleanDept || deptName === "All Departments"
+          (item) => item.department === cleanDept || cleanDept === "All" || cleanDept === "All Departments"
         );
         setComplaints(localFilter);
       })
@@ -934,18 +924,18 @@ function DepartmentView() {
 
   return (
     <Shell type="official">
-      <PageHeader title={`${official?.department || "Department"} View`} subtitle="Focused queue for your team" />
+      <PageHeader title={`${official?.department || "Department"} Queue`} subtitle="Focused workflow list" />
       {loading ? (
         <LoadingBlock />
       ) : complaints.length > 0 ? (
-        <ComplaintTable complaints={complaints} compact />
+        // Render the detailed table view
+        <ComplaintTable complaints={complaints} compact={false} />
       ) : (
-        <EmptyState title="No active complaints" subtext="Your department queue is completely clear!" />
+        <EmptyState title="Queue clear!" subtext="No outstanding issues assigned to this sector." />
       )}
     </Shell>
   );
 }
-
 function CrossDeptAlerts() {
   const [alerts, setAlerts] = useState([]);
 
