@@ -794,12 +794,26 @@ function OfficialDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.get("/api/officials/dashboard")
-      .then(({ data }) => setData(normalizeDashboard(data)))
-      .catch(() => setData(normalizeDashboard({ complaints: fallbackComplaints })))
-      .finally(() => setLoading(false));
-  }, []);
+ useEffect(() => {
+  api.get("/api/officials/dashboard")
+    .then(({ data }) => {
+      // If the backend has true data, parse it; otherwise default arrays cleanly
+      setData({
+        complaints: data?.all_complaints || [],
+        emergencies: data?.emergencies || [],
+        stats: data?.stats || {}
+      });
+    })
+    .catch(() => {
+      // In case of an unexpected dropout, keep the UI clean with no fake alerts
+      setData({
+        complaints: [],
+        emergencies: [],
+        stats: {}
+      });
+    })
+    .finally(() => setLoading(false));
+}, []);
 
   if (loading) return <Shell type="official"><LoadingBlock /></Shell>;
 
@@ -895,40 +909,41 @@ function AllComplaints({ showToast }) {
 }
 
 function DepartmentView() {
-  const official = getStorage("civicmind_official");
   const [complaints, setComplaints] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 1. Get the raw department string from the profile state
-    const deptName = official?.department || "All Departments";
+    // 1. Force a direct synchronous check from disk so state cannot flash null
+    const freshUserData = JSON.parse(localStorage.getItem("civicmind_official") || "{}");
+    const deptName = freshUserData?.department || "";
     
-    // 2. Clean it up so "Water Department" becomes "Water"
+    if (!deptName) {
+      setLoading(false);
+      return;
+    }
+
+    // 2. Extract clean name for API filtering
     const cleanDept = deptName.replace(" Department", "");
 
-    // 3. Make the API call using the clean name
     api.get(`/api/complaints/department/${cleanDept}`)
       .then(({ data }) => {
-        const liveComplaints = data.complaints || [];
-        setComplaints(liveComplaints);
+        setComplaints(data.complaints || []);
       })
       .catch(() => {
-        // Safe fallback if the backend drops out during the presentation
         const localFilter = fallbackComplaints.filter(
-          (item) => item.department === cleanDept || cleanDept === "All" || cleanDept === "All Departments"
+          (item) => item.department === cleanDept || cleanDept === "All Departments" || cleanDept === "All"
         );
         setComplaints(localFilter);
       })
       .finally(() => setLoading(false));
-  }, [official?.department]);
+  }, []); // Strictly empty dependency array—nothing hanging or broken!
 
   return (
     <Shell type="official">
-      <PageHeader title={`${official?.department || "Department"} Queue`} subtitle="Focused workflow list" />
+      <PageHeader title="Department Queue" subtitle="Focused workflow list" />
       {loading ? (
         <LoadingBlock />
       ) : complaints.length > 0 ? (
-        // Render the detailed table view
         <ComplaintTable complaints={complaints} compact={false} />
       ) : (
         <EmptyState title="Queue clear!" subtext="No outstanding issues assigned to this sector." />
