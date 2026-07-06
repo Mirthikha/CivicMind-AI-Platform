@@ -733,7 +733,12 @@ function AskAI({ showToast }) {
   try {
     const formData = new FormData();
     formData.append("question", question);
-    if (complaintId) formData.append("complaint_id", complaintId);
+    
+    // 🌟 SANITIZE FRONTEND TO PREVENT EMPTY FIELD TRANSMISSIONS
+    const trimmedId = complaintId ? complaintId.trim() : "";
+    if (trimmedId && trimmedId.toLowerCase() !== "null" && trimmedId.toLowerCase() !== "undefined") {
+      formData.append("complaint_id", trimmedId);
+    }
 
     const { data } = await api.post("/api/query", formData, {
       headers: { "Content-Type": "multipart/form-data" }

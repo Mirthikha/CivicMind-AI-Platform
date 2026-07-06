@@ -588,6 +588,13 @@ async def citizen_query(
     complaint_id: str = Form(None)
 ):
     """Answers citizen questions using AI."""
+    if complaint_id:
+        complaint_id = complaint_id.strip()
+        if not complaint_id or complaint_id.lower() in ["null", "undefined", ""]:
+            complaint_id = None
+    else:
+        complaint_id = None
+
     result = await query_agent.answer(question, complaint_id)
     return JSONResponse(result)
 
