@@ -53,6 +53,7 @@ from agents.explainability_agent import explainability_agent
 from agents.tracking_agent import tracking_agent
 from agents.feedback_agent import feedback_agent
 from agents.query_agent import query_agent
+from backend.gemini_client import generate_text
 
 # ─────────────────────────────────────────
 # Create FastAPI App
@@ -587,16 +588,39 @@ async def citizen_query(
     question: str = Form(...),
     complaint_id: str = Form(None)
 ):
-    """Answers citizen questions using AI."""
-    if complaint_id:
-        complaint_id = complaint_id.strip()
-        if not complaint_id or complaint_id.lower() in ["null", "undefined", ""]:
-            complaint_id = None
-    else:
-        complaint_id = None
+    """Answers citizen questions using AI securely."""
+    try:
+        # 1. Clean up placeholder inputs
+        if complaint_id:
+            complaint_id = complaint_id.strip()
+            if not complaint_id or complaint_id.lower() in ["null", "undefined", ""]:
+                complaint_id = None
 
-    result = await query_agent.answer(question, complaint_id)
-    return JSONResponse(result)
+        # 2. Build a high-context master prompt for Gemini
+        master_prompt = f"""
+        You are CivicMind AI, an intelligent urban governance assistant. 
+        The citizen is asking the following question regarding city operations or public works:
+        "{question}"
+        """
+        
+        if complaint_id:
+            
+            complaint_doc = db.collection('complaints').document(complaint_id).get()
+            if complaint_doc.exists:
+                cd = complaint_doc.to_dict()
+                master_prompt += f"\nContext: The user is tracking complaint ID {complaint_id}. System status is '{cd.get('status')}', department assigned is '{cd.get('department')}', and the automated diagnosis summary is: '{cd.get('explanation')}'."
+            else:
+                return {"success": True, "answer": f"I checked our Firestore database, but I couldn't find a complaint record matching the ID '{complaint_id}'. Please verify the characters and try tracking again."}
+
+        master_prompt += "\nProvide a helpful, polite, professional, and highly specific response to the citizen's question."
+
+        ai_response = generate_text(master_prompt)
+        
+        return {"success": True, "answer": ai_response.strip()}
+
+    except Exception as e:
+        print(f"[Query API Crash]: {e}")
+        return {"success": False, "answer": "I'm having trouble communicating with our core intelligence agents. Please check back shortly."}
 
 
 # ═══════════════════════════════════════════════════════
@@ -608,10 +632,6 @@ async def verify_outcome(complaint_id: str):
     """Verify if a resolved complaint was actually fixed."""
     result = await tracking_agent.verify_outcome(complaint_id)
     return JSONResponse(result)
-
-# ═══════════════════════════════════════════════════════
-# CROSS-DEPARTMENT GRAPH ENDPOINT
-# ═══════════════════════════════════════════════════════
 
 # ═══════════════════════════════════════════════════════
 # CROSS-DEPARTMENT GRAPH ENDPOINT (FILTERS OUT ISOLATED TICKETS)
