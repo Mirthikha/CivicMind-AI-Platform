@@ -593,12 +593,12 @@ function FileComplaint({ showToast }) {
 function normalizeSubmission(data) {
   const analysis = data.ai_analysis || data.analysis || data;
   return {
-    id: data.complaint_id || data.id || `CM${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-    department: analysis.department || "Roads Department",
-    priority: (analysis.priority || "high").toLowerCase(),
-    explanation: analysis.explanation || "The issue appears to need coordinated inspection and timely field response.",
-    budget_range: analysis.budget_range || "Rs. 15,000 - Rs. 30,000",
-    response_time: analysis.response_time || "24-48 hours"
+    id: data.complaint_id || data.id,
+    department: data.department ? `${data.department} Department` : "Awaiting Assignment...",
+    priority: data.priority ? data.priority.toLowerCase() : "unassigned",
+    explanation: data.explanation || "No explanation text returned from backend.",
+    budget_range: data.budget_range || "No budget allocation calculated.",
+    response_time: data.response_time || "SLA target not set."
   };
 }
 
@@ -673,7 +673,7 @@ function TrackStatus({ showToast }) {
             </div>
           )}
 
-          
+
           {result.status === "resolved" && (
             <div className="feedback-box">
               <h3>Was your issue resolved? Rate us!</h3>
@@ -1139,8 +1139,7 @@ function ChartCard({ title, children }) {
 }
 
 function ComplaintTable({ complaints, onUpdate, compact = false }) {
-  // Use a local state so rows can expand independently anywhere the table is used
-  const [localExpanded, setLocalExpanded] = React.useState("");
+  const [localExpanded, setLocalExpanded] = useState("");
 
   return (
     <div className="table-card">
@@ -1212,6 +1211,8 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
     </div>
   );
 }
+
+
 function FilterBar({ filters, setFilters }) {
   return (
     <div className="filter-bar">
