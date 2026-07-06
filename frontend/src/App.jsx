@@ -513,15 +513,11 @@ function FileComplaint({ showToast }) {
  const submit = async (event) => {
   event.preventDefault();
   setLoading(true);
-  
-  // Safely extract from storage to avoid input field typing errors
-  const currentCitizen = getStorage("civicmind_citizen") || citizen;
-  
   const body = new FormData();
   body.append("complaint_text", form.description);
   body.append("location", form.location);
-  body.append("citizen_name", currentCitizen.name || form.name);
-  body.append("citizen_contact", currentCitizen.phone || form.phone); // Ensures exact lookup match
+  body.append("citizen_name", form.name);
+  body.append("citizen_contact", form.phone);
   if (image) body.append("image", image);
   
   try {
@@ -531,8 +527,8 @@ function FileComplaint({ showToast }) {
     setResult(normalizeSubmission(data));
     showToast("Complaint submitted successfully");
   } catch (err) {
-    console.error("Submission failed:", err);
-    showToast("Backend connection error", "error");
+    console.error("❌ Live Backend Crash Details:", err);
+    showToast(err.response?.data?.error || "Backend processing failed or timed out", "error");
   } finally {
     setLoading(false);
   }
