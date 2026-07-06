@@ -122,10 +122,14 @@ export default function CrossDeptGraph() {
         setStats({ total: res.data.total_complaints, rootCauses: res.data.total_root_causes, crossDept: res.data.cross_dept_count });
         setGroups(res.data.groups || []);
       } else {
-        loadPresentationFallback();
+        setNodes([]);
+      setEdges([]);
+      setStats({ total: 0, rootCauses: 0, crossDept: 0 });
+      setGroups([]);
       }
     } catch (err) {
-      loadPresentationFallback();
+      setNodes([]);
+    setEdges([]);
     } finally {
       setLoading(false);
     }
