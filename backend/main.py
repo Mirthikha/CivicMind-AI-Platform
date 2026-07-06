@@ -310,6 +310,12 @@ async def submit_complaint(
             "budget_itemized": budget.get("itemized", []),
 
             # Explainability
+
+            "explanation": explanation.get("explanation"),
+            "explanation_text": explanation.get("explanation"),      
+            "ai_explanation": explanation.get("explanation"),        
+            "ai_reason": explanation.get("explanation"),
+
             "explanation": explanation.get("explanation"),
             "confidence_label": explanation.get("confidence_label"),
             "recommended_action": explanation.get("recommended_action"),
