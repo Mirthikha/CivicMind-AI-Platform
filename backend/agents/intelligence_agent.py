@@ -202,7 +202,7 @@ class IntelligenceAgent:
 You are an infrastructure analyst for a city government.
 
 A new complaint arrived. There are also existing complaints nearby.
-Find if they share the same underlying infrastructure problem.
+Find if they share the same underlying infrastructure problem. Show they are similar only if the complain has a common cause that caused both the issues and are from the same area not only from the same city.
 
 NEW COMPLAINT:
 Type: {intake_result.get('issue_type')}
@@ -290,7 +290,7 @@ CONFIDENCE: number 0.0 to 1.0
         cluster_count = len(similar) + 1
 
         prompt = f"""
-You are a senior infrastructure engineer analyzing civic complaints.
+You are a senior infrastructure engineer analyzing civic complaints. Find the root cause only if the complaints are related and are from the same area, not only same city.
 
 CURRENT COMPLAINT:
 Problem: {intake_result.get('specific_problem')}

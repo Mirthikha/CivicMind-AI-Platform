@@ -606,141 +606,117 @@ async def verify_outcome(complaint_id: str):
 # CROSS-DEPARTMENT GRAPH ENDPOINT
 # ═══════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════
+# CROSS-DEPARTMENT GRAPH ENDPOINT (FILTERS OUT ISOLATED TICKETS)
+# ═══════════════════════════════════════════════════════
+
 @app.get("/api/graph/cross-department")
 async def get_cross_department_graph():
     """
-    Returns data formatted specifically for
-    the cross-department graph visualization.
-    
-    Frontend uses this to draw the connection graph.
+    Returns data formatted specifically for the cross-department graph visualization.
+    Only includes nodes that participate in a cross-department linkage.
     """
     try:
-        # Get all complaints that have cross-dept links
+        # Stream live complaints collection from database
         docs = db.collection('complaints').stream()
         
-        nodes = []      # Each complaint = one node
-        edges = []      # Connections between nodes
-        groups = []     # Grouped complaints sharing root cause
+        nodes = []      # Relational target nodes 
+        edges = []      # Directional link connections
+        groups = []     # Aggregated cluster meta
         
-        node_ids = set()  # Track to avoid duplicates
+        node_ids = set()  # Prevent duplicate node additions
         
         for doc in docs:
             data = doc.to_dict()
             complaint_id = doc.id
             cross_links = data.get('cross_dept_links', {})
             
-            # Add this complaint as a node
-            if complaint_id not in node_ids:
-                nodes.append({
-                    "id": complaint_id,
-                    "label": complaint_id,
-                    "problem": data.get('specific_problem', '')[:50],
-                    "location": data.get('location', ''),
-                    "department": data.get('department', 'other'),
-                    "priority": data.get('priority_level', 'low'),
-                    "priority_score": data.get('priority_score', 0),
-                    "status": data.get('status', 'submitted'),
-                    "severity": data.get('severity', 'medium'),
-                    "type": "complaint"
-                })
-                node_ids.add(complaint_id)
-            
-            # If this complaint is linked to others
+            # 🌟 FIXED: Enforce a strict gate check. Only build graph assets 
+            # if the Intelligence Agent confirmed an active cross-department link!
             if cross_links.get('linked'):
                 root_cause = data.get('root_cause', {})
                 linked_ids = cross_links.get('linked_ids', [])
-                departments = cross_links.get(
-                    'departments_involved', []
-                )
-                underlying = cross_links.get(
-                    'underlying_issue', 'Unknown'
-                )
+                departments = cross_links.get('departments_involved', [])
+                underlying = cross_links.get('underlying_issue', 'Unknown')
                 
-                # Create a ROOT CAUSE node
+                # 1. Safely add the primary anchor complaint node inside the check
+                if complaint_id not in node_ids:
+                    nodes.append({
+                        "id": complaint_id,
+                        "label": complaint_id,
+                        "problem": data.get('specific_problem', '')[:50],
+                        "location": data.get('location', ''),
+                        "department": data.get('department', 'other'),
+                        "priority": data.get('priority_level', 'low'),
+                        "priority_score": data.get('priority_score', 0),
+                        "status": data.get('status', 'submitted'),
+                        "severity": data.get('severity', 'medium'),
+                        "type": "complaint"
+                    })
+                    node_ids.add(complaint_id)
+                
+                # 2. Generate the centralized ROOT CAUSE cluster node hub
                 root_node_id = f"root_{complaint_id}"
                 if root_node_id not in node_ids:
                     nodes.append({
                         "id": root_node_id,
                         "label": "Root Cause",
-                        "problem": root_cause.get(
-                            'root_cause', underlying
-                        )[:60],
+                        "problem": root_cause.get('root_cause', underlying)[:60],
                         "location": data.get('location', ''),
                         "department": "multiple",
                         "departments_involved": departments,
-                        "confidence": root_cause.get(
-                            'confidence', 0.7
-                        ),
-                        "failure_risk": root_cause.get(
-                            'failure_risk', 'medium'
-                        ),
-                        "recommended_action": root_cause.get(
-                            'recommended_action', ''
-                        ),
+                        "confidence": root_cause.get('confidence', 0.7),
+                        "failure_risk": root_cause.get('failure_risk', 'medium'),
+                        "recommended_action": root_cause.get('recommended_action', ''),
                         "underlying_issue": underlying,
                         "type": "root_cause"
                     })
                     node_ids.add(root_node_id)
                 
-                # Edge: complaint → root cause
+                # Edge connection: Anchor complaint → Root cause center
                 edges.append({
                     "from": complaint_id,
                     "to": root_node_id,
                     "label": "caused by"
                 })
                 
-                # Add linked complaints and connect them
+                # 3. Process and loop secondary linked complaint assets
                 for linked_id in linked_ids:
                     if linked_id and linked_id not in node_ids:
-                        # Fetch linked complaint data
-                        linked_doc = db.collection(
-                            'complaints'
-                        ).document(linked_id).get()
+                        linked_doc = db.collection('complaints').document(linked_id).get()
                         
                         if linked_doc.exists:
                             ld = linked_doc.to_dict()
                             nodes.append({
                                 "id": linked_id,
                                 "label": linked_id,
-                                "problem": ld.get(
-                                    'specific_problem', ''
-                                )[:50],
+                                "problem": ld.get('specific_problem', '')[:50],
                                 "location": ld.get('location', ''),
-                                "department": ld.get(
-                                    'department', 'other'
-                                ),
-                                "priority": ld.get(
-                                    'priority_level', 'low'
-                                ),
-                                "status": ld.get(
-                                    'status', 'submitted'
-                                ),
+                                "department": ld.get('department', 'other'),
+                                "priority": ld.get('priority_level', 'low'),
+                                "status": ld.get('status', 'submitted'),
                                 "type": "complaint"
                             })
                             node_ids.add(linked_id)
                         
-                        # Edge: linked complaint → root cause
+                        # Edge connection: Linked complaint → Root cause center
                         edges.append({
                             "from": linked_id,
                             "to": root_node_id,
                             "label": "caused by"
                         })
                 
-                # Track this as a group
+                # Keep groups structure aligned for custom summary displays
                 groups.append({
                     "root_cause_id": root_node_id,
                     "complaint_ids": [complaint_id] + linked_ids,
                     "departments": departments,
-                    "root_cause_text": root_cause.get(
-                        'root_cause', underlying
-                    ),
+                    "root_cause_text": root_cause.get('root_cause', underlying),
                     "confidence": root_cause.get('confidence', 0.7),
-                    "failure_risk": root_cause.get(
-                        'failure_risk', 'medium'
-                    )
+                    "failure_risk": root_cause.get('failure_risk', 'medium')
                 })
         
-        # Department summary
+        # Recalculate summary totals exclusively for visible nodes
         dept_summary = {}
         for node in nodes:
             if node["type"] == "complaint":
@@ -752,18 +728,14 @@ async def get_cross_department_graph():
             "nodes": nodes,
             "edges": edges,
             "groups": groups,
-            "total_complaints": len(
-                [n for n in nodes if n["type"] == "complaint"]
-            ),
-            "total_root_causes": len(
-                [n for n in nodes if n["type"] == "root_cause"]
-            ),
+            "total_complaints": len([n for n in nodes if n["type"] == "complaint"]),
+            "total_root_causes": len([n for n in nodes if n["type"] == "root_cause"]),
             "cross_dept_count": len(groups),
             "department_summary": dept_summary
         })
         
     except Exception as e:
-        print(f"[Graph] Error: {e}")
+        print(f"[Graph] Error compilation exception: {e}")
         return JSONResponse(
             {"success": False, "error": str(e)},
             status_code=500

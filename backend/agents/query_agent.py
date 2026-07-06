@@ -38,6 +38,7 @@ ELECTRICITY DEPARTMENT:
 - New connection: 15-30 days processing
 - Meter complaint: Inspection within 7 days
 - Streetlight: Repair within 48-72 hours
+- Electricity issues will be inspected within 2 days and appropriate action will be taken
 
 GENERAL:
 - All complaints receive a complaint ID for tracking
@@ -127,7 +128,7 @@ Use this information to answer the citizen's question:
 CITIZEN QUESTION: "{question}"
 
 Give a clear, friendly answer in 2-3 sentences.
-If you don't know the exact answer, direct them to contact
+If their question is out of the context, direct them to contact
 the relevant department's helpline.
 Do not make up specific phone numbers or addresses.
 """

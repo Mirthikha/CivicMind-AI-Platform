@@ -658,6 +658,22 @@ function TrackStatus({ showToast }) {
       : [{ timestamp: "Today", note: result.message || "Complaint received and is being reviewed." }]
   } 
 />
+
+{result && (result.explanation || result.budget_range) && (
+            <div style={{ marginTop: "24px", padding: "20px", background: "#f1f5f9", borderRadius: "12px", textAlign: "left" }}>
+              <h3 style={{ display: "flex", alignItems: "center", gap: "8px", margin: "0 0 12px 0", color: "#4f46e5" }}>
+                <Sparkles size={18} /> Automated AI Diagnostics
+              </h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "14px", color: "#334155" }}>
+                <p style={{ margin: 0 }}><strong>System Assessment:</strong> {result.explanation}</p>
+                {result.recommended_action && <p style={{ margin: 0 }}><strong>Action Deployment Plan:</strong> {result.recommended_action}</p>}
+                <p style={{ margin: 0 }}><strong>Pre-Approved Budget Limit:</strong> {result.budget_range || "Calculating allocation bounds..."}</p>
+                {result.response_time_target && <p style={{ margin: 0 }}><strong>Target Resolution SLA:</strong> {result.response_time_target}</p>}
+              </div>
+            </div>
+          )}
+
+          
           {result.status === "resolved" && (
             <div className="feedback-box">
               <h3>Was your issue resolved? Rate us!</h3>
@@ -1122,7 +1138,10 @@ function ChartCard({ title, children }) {
   return <article className="card chart-card"><h3>{title}</h3>{children}</article>;
 }
 
-function ComplaintTable({ complaints, expanded, setExpanded, onUpdate, compact = false }) {
+function ComplaintTable({ complaints, onUpdate, compact = false }) {
+  // Use a local state so rows can expand independently anywhere the table is used
+  const [localExpanded, setLocalExpanded] = React.useState("");
+
   return (
     <div className="table-card">
       <table>
@@ -1132,36 +1151,67 @@ function ComplaintTable({ complaints, expanded, setExpanded, onUpdate, compact =
           </tr>
         </thead>
         <tbody>
-          {complaints.map((item) => (
-            <Fragment key={item.id}>
-              <tr>
-                <td><span className="id-badge">{item.id}</span></td>
-                <td>{item.problem || item.specific_problem}</td>
-                <td>{item.location}</td>
-                <td><Badge tone="info">{item.department}</Badge></td>
-                <td><Badge tone={priorityTone(item.priority_level)}>{priorityLabels[item.priority_level] || item.priority_level}</Badge></td>
-                <td>{item.budget_range || "Under Review"}</td>
-                <td><Badge tone={statusColors[item.status] || "muted"}>{statusLabels[item.status] || item.status}</Badge></td>
-                {!compact && <td><button className="button button-soft small" onClick={() => onUpdate ? onUpdate(item) : setExpanded(expanded === item.id ? "" : item.id)}>Update Status</button></td>}
-              </tr>
-              {!compact && expanded === item.id && (
-                <tr className="expand-row">
-                  <td colSpan="8">
-                    <p><strong>AI explanation:</strong> {item.explanation}</p>
-                    <p><strong>Root cause hypothesis:</strong> {item.root_cause && typeof item.root_cause === 'object' ? item.root_cause.root_cause : item.root_cause}</p>
-                    <p><strong>Recommended action:</strong> {item.recommended_action}</p>
-                    <p><strong>Departments involved:</strong> {item.departments_involved?.join(", ")}</p>
-                  </td>
+          {complaints.map((item) => {
+            const isRowExpanded = localExpanded === item.id;
+            return (
+              <Fragment key={item.id}>
+                <tr>
+                  <td><span className="id-badge">{item.id}</span></td>
+                  <td>{item.problem || item.specific_problem}</td>
+                  <td>{item.location}</td>
+                  <td><Badge tone="info">{item.department}</Badge></td>
+                  <td><Badge tone={priorityTone(item.priority_level)}>{priorityLabels[item.priority_level] || item.priority_level}</Badge></td>
+                  <td>{item.budget_range || "Under Review"}</td>
+                  <td><Badge tone={statusColors[item.status] || "muted"}>{statusLabels[item.status] || item.status}</Badge></td>
+                  {!compact && (
+                    <td>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <button 
+                          className="button button-soft small" 
+                          onClick={() => setLocalExpanded(isRowExpanded ? "" : item.id)}
+                        >
+                          {isRowExpanded ? "Hide AI" : "Inspect AI"}
+                        </button>
+                        {onUpdate && (
+                          <button 
+                            className="button button-dark small" 
+                            onClick={() => onUpdate(item)}
+                          >
+                            Status
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )}
                 </tr>
-              )}
-            </Fragment>
-          ))}
+                {!compact && isRowExpanded && (
+                  <tr className="expand-row" style={{ backgroundColor: "#f8fafc" }}>
+                    <td colSpan="8" style={{ padding: "16px", textAlign: "left" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        <p style={{ margin: 0 }}>
+                          <strong>🤖 AI Explanation:</strong> {item.explanation || "No explanation paragraph generated."}
+                        </p>
+                        <p style={{ margin: 0 }}>
+                          <strong>⚡ Root Cause Hypothesis:</strong> {item.root_cause && typeof item.root_cause === 'object' ? item.root_cause.root_cause : item.root_cause || "Analyzing linkage..."}
+                        </p>
+                        <p style={{ margin: 0 }}>
+                          <strong>⚠️ Failure Prediction:</strong> <span style={{ color: "#dc2626" }}>{item.root_cause && typeof item.root_cause === 'object' ? item.root_cause.prediction : "N/A"}</span>
+                        </p>
+                        <p style={{ margin: 0 }}>
+                          <strong>📋 Recommended Action:</strong> {item.recommended_action || "Manual inspection required."}
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
-
 function FilterBar({ filters, setFilters }) {
   return (
     <div className="filter-bar">

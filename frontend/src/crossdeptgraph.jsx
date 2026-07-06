@@ -15,8 +15,13 @@ const DEPT_COLORS = {
 const RISK_COLORS = { critical: '#FC8181', high: '#F6AD55', medium: '#F6E05E', low: '#68D391' };
 const PRIORITY_COLORS = { critical: '#FEB2B2', high: '#FBD38D', medium: '#FAF089', low: '#9AE6B4' };
 
+// 🔍 Find your ComplaintNode component and update these two lines:
+
 function ComplaintNode({ data }) {
-  const colors = DEPT_COLORS[data.department] || DEPT_COLORS.other;
+  // Convert incoming string to lowercase to perfectly match your DEPT_COLORS map
+  const deptKey = (data.department || 'other').toLowerCase();
+  const colors = DEPT_COLORS[deptKey] || DEPT_COLORS.other;
+  
   const priorityColor = PRIORITY_COLORS[data.priority] || '#E2E8F0';
   return (
     <div style={{ background: colors.bg, border: `2px solid ${colors.border}`, borderRadius: '12px', padding: '12px', minWidth: '180px', maxWidth: '200px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', fontSize: '12px' }}>
