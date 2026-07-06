@@ -594,13 +594,19 @@ function FileComplaint({ showToast }) {
 }
 
 function normalizeSubmission(data) {
-return {
-    id: data.complaint_id || data.id,
-    department: data.department ? `${data.department} Department` : "Awaiting Assignment...",
-    priority: data.priority ? data.priority.toLowerCase() : "unassigned",
-    explanation: data.explanation || "No explanation text returned from backend.",
-    budget_range: data.budget_range || "No budget allocation calculated.",
-    response_time: data.response_time || "SLA target not set."
+  
+  const root = data?.complaint || data || {};
+
+  return {
+    id: root.complaint_id || root.id,
+    department: root.department ? (root.department.includes("Department") ? root.department : `${root.department} Department`) : "Awaiting Assignment...",
+    
+    priority: (root.priority || root.priority_level || "unassigned").toLowerCase(),
+    
+    explanation: root.explanation || root.explanation_text || root.ai_explanation || "No explanation text returned from backend.",
+    budget_range: root.budget_range || "No budget allocation calculated.",
+    
+    response_time: root.response_time || root.response_time_target || "SLA target not set."
   };
 }
 
@@ -651,7 +657,7 @@ function TrackStatus({ showToast }) {
   <div className="meta-grid">
     <span><strong>Department</strong><Badge tone="info">{result.department}</Badge></span>
     
-    {/* 🌟 FINAL FIX: Look up priority_level to cleanly match your Firestore fields */}
+    
     <span>
       <strong>Priority</strong>
       <Badge tone={priorityTone(result.priority || result.priority_level)}>
@@ -772,7 +778,7 @@ function CitizenRatings({ showToast }) {
   useEffect(() => {
     api.get("/api/feedback/ratings")
       .then(({ data }) => {
-        // Safely check if data.ratings is the actual list array
+        
         if (data && Array.isArray(data.ratings)) {
           setRatings(data.ratings);
         } else if (Array.isArray(data)) {
@@ -839,7 +845,7 @@ function OfficialDashboard() {
  useEffect(() => {
   api.get("/api/officials/dashboard")
     .then(({ data }) => {
-      // If the backend has true data, parse it; otherwise default arrays cleanly
+      
       setData({
         complaints: data?.all_complaints || [],
         emergencies: data?.emergencies || [],
@@ -847,7 +853,7 @@ function OfficialDashboard() {
       });
     })
     .catch(() => {
-      // In case of an unexpected dropout, keep the UI clean with no fake alerts
+      
       setData({
         complaints: [],
         emergencies: [],
@@ -927,9 +933,9 @@ function AllComplaints({ showToast }) {
   const updateStatus = async (payload) => {
   const formData = new FormData();
   formData.append("complaint_id", payload.complaint_id);
-  formData.append("new_status", payload.status); // backend uses 'new_status'
-  formData.append("update_note", payload.note);   // backend uses 'update_note'
-  formData.append("updated_by", official.name);  // backend uses 'updated_by'
+  formData.append("new_status", payload.status); 
+  formData.append("update_note", payload.note);   
+  formData.append("updated_by", official.name);  
 
   await api.post("/api/officials/update-status", formData, {
     headers: { "Content-Type": "multipart/form-data" }
