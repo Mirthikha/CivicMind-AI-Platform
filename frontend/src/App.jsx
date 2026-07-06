@@ -510,26 +510,33 @@ function FileComplaint({ showToast }) {
     setPreview(file ? URL.createObjectURL(file) : "");
   };
 
-  const submit = async (event) => {
-    event.preventDefault();
-    setLoading(true);
-    const body = new FormData();
-    body.append("complaint_text", form.description);
-    body.append("location", form.location);
-    body.append("citizen_name", form.name);
-    body.append("citizen_contact", form.phone);
-    if (image) body.append("image", image);
-    try {
-      const { data } = await api.post("/api/complaints/submit", body, { headers: { "Content-Type": "multipart/form-data" } });
-      setResult(normalizeSubmission(data));
-      showToast("Complaint submitted successfully");
-    } catch {
-      setResult(normalizeSubmission({}));
-      showToast("Backend unavailable, showing demo submission", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+ const submit = async (event) => {
+  event.preventDefault();
+  setLoading(true);
+  
+  // Safely extract from storage to avoid input field typing errors
+  const currentCitizen = getStorage("civicmind_citizen") || citizen;
+  
+  const body = new FormData();
+  body.append("complaint_text", form.description);
+  body.append("location", form.location);
+  body.append("citizen_name", currentCitizen.name || form.name);
+  body.append("citizen_contact", currentCitizen.phone || form.phone); // Ensures exact lookup match
+  if (image) body.append("image", image);
+  
+  try {
+    const { data } = await api.post("/api/complaints/submit", body, { 
+      headers: { "Content-Type": "multipart/form-data" } 
+    });
+    setResult(normalizeSubmission(data));
+    showToast("Complaint submitted successfully");
+  } catch (err) {
+    console.error("Submission failed:", err);
+    showToast("Backend connection error", "error");
+  } finally {
+    setLoading(false);
+  }
+};
 
   if (result) {
     return (
@@ -591,8 +598,7 @@ function FileComplaint({ showToast }) {
 }
 
 function normalizeSubmission(data) {
-  const analysis = data.ai_analysis || data.analysis || data;
-  return {
+return {
     id: data.complaint_id || data.id,
     department: data.department ? `${data.department} Department` : "Awaiting Assignment...",
     priority: data.priority ? data.priority.toLowerCase() : "unassigned",
@@ -645,12 +651,20 @@ function TrackStatus({ showToast }) {
       </form>
       {result && (
         <article className="card status-card">
-          <Badge tone={statusColors[result.status] || "warning"} big>{statusLabels[result.status] || result.status}</Badge>
-          <div className="meta-grid">
-            <span><strong>Department</strong><Badge tone="info">{result.department}</Badge></span>
-            <span><strong>Priority</strong><Badge tone={priorityTone(result.priority)}>{priorityLabels[result.priority] || result.priority}</Badge></span>
-            <span><strong>Filed on</strong>{result.date || result.created_at || "Today"}</span>
-          </div>
+  <Badge tone={statusColors[result.status] || "warning"} big>{statusLabels[result.status] || result.status}</Badge>
+  <div className="meta-grid">
+    <span><strong>Department</strong><Badge tone="info">{result.department}</Badge></span>
+    
+    {/* 🌟 FINAL FIX: Look up priority_level to cleanly match your Firestore fields */}
+    <span>
+      <strong>Priority</strong>
+      <Badge tone={priorityTone(result.priority || result.priority_level)}>
+        {priorityLabels[result.priority || result.priority_level] || result.priority || result.priority_level}
+      </Badge>
+    </span>
+    
+    <span><strong>Filed on</strong>{result.date || result.created_at || "Today"}</span>
+  </div>
           <Timeline 
   updates={
     result.progress_updates && result.progress_updates.length > 0 
@@ -1211,7 +1225,6 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
     </div>
   );
 }
-
 
 function FilterBar({ filters, setFilters }) {
   return (
