@@ -12,10 +12,7 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 MODEL_NAME = "gemini-2.5-flash"
 
 def generate_text(prompt: str) -> str:
-    """
-    Send a text prompt to Gemini, get text back.
-    Used by: classification, intelligence, explainability agents
-    """
+
     response = client.models.generate_content(
         model=MODEL_NAME,
         contents=prompt

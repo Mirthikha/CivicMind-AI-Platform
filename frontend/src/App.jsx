@@ -476,7 +476,7 @@ function CitizenDashboard({ showToast }) {
           {complaints.map((item) => (
             <button key={item.id || item.complaint_id} className="complaint-card" onClick={() => navigate(`/citizen/track?id=${item.id || item.complaint_id}`)}>
               <span className="id-badge">{item.id || item.complaint_id}</span>
-              <strong>{item.problem || item.complaint_text || item.summary}</strong>
+              <strong>{item.original_complaint || item.complaint_text || item.problem || item.summary}</strong>
               <span>{item.department || "General"} Department</span>
               <Badge tone={statusColors[item.status] || "info"}>{statusLabels[item.status] || item.status || "Submitted"}</Badge>
               <small>{item.date || item.created_at || "Today"}</small>
@@ -665,13 +665,13 @@ function TrackStatus({ showToast }) {
       </Badge>
     </span>
     
-    <span><strong>Filed on</strong>{result.date || result.created_at || "Today"}</span>
+    <span><strong>Filed on</strong>{result.created_at || result.date || "Just Now"}</span>
   </div>
           <Timeline 
   updates={
     result.progress_updates && result.progress_updates.length > 0 
       ? result.progress_updates 
-      : [{ timestamp: "Today", note: result.message || "Complaint received and is being reviewed." }]
+      : [{ timestamp: result.created_at || "Just Now", note: result.message || "Complaint received and is being reviewed." }]
   } 
 />
 
@@ -725,31 +725,50 @@ function AskAI({ showToast }) {
   }, [messages]);
 
   const send = async () => {
-  if (!question.trim()) return;
-  const userMessage = { from: "user", text: question, time: nowTime() };
-  setMessages((items) => [...items, userMessage]);
-  setQuestion("");
-  setLoading(true);
-  try {
-    const formData = new FormData();
-    formData.append("question", question);
+    if (!question.trim()) return;
     
-    // 🌟 SANITIZE FRONTEND TO PREVENT EMPTY FIELD TRANSMISSIONS
-    const trimmedId = complaintId ? complaintId.trim() : "";
-    if (trimmedId && trimmedId.toLowerCase() !== "null" && trimmedId.toLowerCase() !== "undefined") {
-      formData.append("complaint_id", trimmedId);
-    }
+    const userMessage = { from: "user", text: question, time: nowTime() };
+    setMessages((items) => [...items, userMessage]);
+    setQuestion("");
+    setLoading(true);
+    
+    try {
+      // Build standard FormData body match for Python's Form(...) parser
+      const formData = new FormData();
+      formData.append("question", userMessage.text);
+      
+      // Cleanly append complaint_id only if something valid is typed
+      if (complaintId && complaintId.trim() !== "") {
+        formData.append("complaint_id", complaintId.trim());
+      } else {
+        formData.append("complaint_id", ""); // Send an explicit empty value instead of leaving it out
+      }
 
-    const { data } = await api.post("/api/query", formData, {
-      headers: { "Content-Type": "multipart/form-data" }
-    });
-    setMessages((items) => [...items, { from: "ai", text: data.answer || data.response || "I found that information for you.", time: nowTime() }]);
-  } catch {
-    setMessages((items) => [...items, { from: "ai", text: "Based on CivicMind guidance, routine civic complaints are reviewed by the relevant department.", time: nowTime() }]);
-  } finally {
-    setLoading(false);
-  }
-};
+      const { data } = await api.post("/api/query", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      
+      if (data.success) {
+        setMessages((items) => [
+          ...items, 
+          { from: "ai", text: data.answer, time: nowTime() }
+        ]);
+      } else {
+        setMessages((items) => [
+          ...items, 
+          { from: "ai", text: data.answer || "I could not process that request properly.", time: nowTime() }
+        ]);
+      }
+    } catch (error) {
+      console.error("❌ Chat API Error Details:", error);
+      setMessages((items) => [
+        ...items, 
+        { from: "ai", text: "Connecting to the civic core system failed. Please check your local server logs.", time: nowTime() }
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <Shell>
@@ -783,19 +802,44 @@ function CitizenRatings({ showToast }) {
   useEffect(() => {
     api.get("/api/feedback/ratings")
       .then(({ data }) => {
+        // 1. Extract the raw array regardless of wrapper structure
+        const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
         
-        if (data && Array.isArray(data.ratings)) {
-          setRatings(data.ratings);
-        } else if (Array.isArray(data)) {
-          setRatings(data);
-        } else {
+        if (realReviews.length === 0) {
           setRatings(defaultRatings);
+          return;
         }
+
+        // 2. Pro-Tier Merge: Combine real reviews with default categories 
+        // so the UI never looks empty, but live data takes priority!
+        const merged = defaultRatings.map(defaultDept => {
+          // Find if there matches a live review for this specific department
+          const match = realReviews.find(
+            r => r.department?.toLowerCase().includes(defaultDept.department.split(" ")[0].toLowerCase())
+          );
+          
+          if (match) {
+            return {
+              ...defaultDept,
+              rating: match.rating ? parseFloat(match.rating).toFixed(1) : defaultDept.rating,
+              responses: match.responses || defaultDept.responses + 1,
+              comments: match.comments && match.comments.length > 0 
+                ? [...match.comments, ...defaultDept.comments].slice(0, 3)
+                : [match.comment || "Great service!", ...defaultDept.comments].filter(Boolean).slice(0, 3)
+            };
+          }
+          return defaultDept;
+        });
+
+        setRatings(merged);
       })
-      .catch(() => setRatings(defaultRatings));
+      .catch((err) => {
+        console.error("❌ Ratings Fetch Failed:", err);
+        setRatings(defaultRatings);
+      });
   }, []);
 
-  const submit = async () => {
+ const submit = async () => {
     if (!form.complaint_id || !form.rating) {
       showToast("Add a complaint ID and star rating first", "error");
       return;
@@ -813,13 +857,20 @@ function CitizenRatings({ showToast }) {
       });
       showToast("Thanks for sharing your experience");
       setForm({ complaint_id: "", rating: 0, comment: "" });
+      
+      // 🌟 RE-FETCH FRESH RATINGS IMMEDIATELY
+      const { data } = await api.get("/api/feedback/ratings");
+      const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
+      if (realReviews.length > 0) {
+        // Trigger UI update
+        window.location.reload(); 
+      }
     } catch {
       showToast("Couldn't submit feedback right now", "error");
     } finally {
       setLoading(false);
     }
   };
-
   return (
     <Shell>
       <PageHeader title="Service Ratings" subtitle="See how our city departments are performing" />
@@ -847,68 +898,71 @@ function OfficialDashboard() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
- useEffect(() => {
-  api.get("/api/officials/dashboard")
-    .then(({ data }) => {
-      
-      setData({
-        complaints: data?.all_complaints || [],
-        emergencies: data?.emergencies || [],
-        stats: data?.stats || {}
-      });
-    })
-    .catch(() => {
-      
-      setData({
-        complaints: [],
-        emergencies: [],
-        stats: {}
-      });
-    })
-    .finally(() => setLoading(false));
-}, []);
+  useEffect(() => {
+    api.get("/api/officials/dashboard")
+      .then(({ data }) => {
+        setData({
+          complaints: data?.all_complaints || [],
+          emergencies: data?.emergencies || [],
+          stats: data?.stats || {}
+        });
+      })
+      .catch(() => {
+        setData({
+          complaints: [],
+          emergencies: [],
+          stats: {}
+        });
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
   if (loading) return <Shell type="official"><LoadingBlock /></Shell>;
 
-  const emergencies = data.complaints.filter((item) => item.priority === "critical");
+  const emergencies = data.complaints.filter((item) => (item.priority_level || item.priority || "").toLowerCase() === "critical");
   const statusData = Object.entries(groupCount(data.complaints, "status")).map(([name, value]) => ({ name: statusLabels[name] || name, value }));
   const deptData = Object.entries(groupCount(data.complaints, "department")).map(([department, count]) => ({ department, count }));
 
   return (
     <Shell type="official">
-      {emergencies.length > 0 && (
-        <section className="emergency-banner">
-          <AlertTriangle /> <strong>{emergencies.length} Active Emergency Alerts</strong>
-          <span>{emergencies.map((item) => item.id).join(", ")}</span>
+      {data.emergencies && data.emergencies.length > 0 && (
+        <section className="emergency-banner" style={{ backgroundColor: "#fee2e2", borderLeft: "6px solid #dc2626", padding: "16px", borderRadius: "8px", marginBottom: "20px", color: "#991b1b", display: "flex", alignItems: "center", gap: "12px", textAlign: "left" }}>
+          <AlertTriangle size={28} style={{ color: "#dc2626" }} /> 
+          <div>
+            <strong style={{ fontSize: "18px", display: "block" }}>🚨 {data.emergencies.length} ACTIVE LIFE-THREATENING EMERGENCIES UNRESOLVED</strong>
+            <span style={{ fontSize: "14px", color: "#7f1d1d" }}>Immediate Dispatch Required For Ticket IDs: {data.emergencies.map((item) => item.id || item.complaint_id).join(", ")}</span>
+          </div>
         </section>
       )}
+
       <div className="stats-grid">
         <StatCard title="Total Complaints" value={data.complaints.length} tone="purple" />
-        <StatCard title="Emergencies" value={emergencies.length} tone="red" />
-        <StatCard title="Critical" value={data.complaints.filter((item) => ["critical", "high"].includes(item.priority)).length} tone="orange" />
-        <StatCard title="Total Budget Range" value="Rs. 1.2L+" tone="green" />
+        <StatCard title="Emergencies" value={data.emergencies.length} tone="red" />
+        <StatCard title="Critical" value={emergencies.length} tone="orange" />
+        <StatCard title="Total Budget Range" value={data.stats.total_budget_range || "N/A"} tone="green" />
       </div>
-      <div className="chart-grid">
-        <ChartCard title="Complaints by Status">
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={statusData} dataKey="value" nameKey="name" outerRadius={88}>
-                {statusData.map((_, index) => <Cell key={index} fill={["#6C63FF", "#74B9FF", "#FFB347", "#43D9A2", "#FF6B6B"][index % 5]} />)}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-        </ChartCard>
-        <ChartCard title="Complaints by Department">
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={deptData}>
-              <XAxis dataKey="department" />
-              <YAxis allowDecimals={false} />
-              <Tooltip />
-              <Bar dataKey="count" fill="#6C63FF" radius={[12, 12, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </ChartCard>
+
+      <div className="stats-grid">
+        <StatCard 
+          title="Total Complaints" 
+          value={data.stats?.total_complaints ?? data.complaints.length} 
+          tone="purple" 
+        />
+        <StatCard 
+          title="Emergencies" 
+          value={data.stats?.total_emergencies ?? 0} 
+          tone="red" 
+        />
+        <StatCard 
+          title="Critical" 
+          value={data.stats?.by_priority?.critical ?? data.complaints.filter((item) => (item.priority_level || item.priority || "").toLowerCase() === "critical").length} 
+          tone="orange" 
+        />
+        <StatCard 
+          title="Total Budget Range" 
+          value={data.stats?.total_budget_range || "Calculating..."} 
+          tone="green" 
+        />
       </div>
     </Shell>
   );
@@ -1173,15 +1227,23 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
         <tbody>
           {complaints.map((item) => {
             const isRowExpanded = localExpanded === item.id;
+            const isEmergency = (item.priority_level || item.priority || "").toLowerCase() === "critical";
+            
             return (
               <Fragment key={item.id}>
-                <tr>
-                  <td><span className="id-badge">{item.id}</span></td>
-                  <td>{item.problem || item.specific_problem}</td>
+                <tr style={isEmergency ? { backgroundColor: "rgba(254, 226, 226, 0.4)", borderLeft: "4px solid #dc2626" } : {}}>
+                  <td>
+                    <span className="id-badge" style={isEmergency ? { backgroundColor: "#dc2626", color: "#fff" } : {}}>
+                      {isEmergency ? "🚨 " : ""}{item.id}
+                    </span>
+                  </td>
+                  <td style={isEmergency ? { fontWeight: "bold", color: "#991b1b" } : {}}>
+                    {item.original_complaint || item.problem || item.specific_problem}
+                  </td>
                   <td>{item.location}</td>
-                  <td><Badge tone="info">{item.department}</Badge></td>
-                  <td><Badge tone={priorityTone(item.priority_level)}>{priorityLabels[item.priority_level] || item.priority_level}</Badge></td>
-                  <td>{item.budget_range || "Under Review"}</td>
+                  <td><Badge tone={isEmergency ? "danger" : "info"}>{item.department}</Badge></td>
+                  <td><Badge tone="danger">CRITICAL</Badge></td>
+                  <td>{item.budget_range || "N/A"}</td>
                   <td><Badge tone={statusColors[item.status] || "muted"}>{statusLabels[item.status] || item.status}</Badge></td>
                   {!compact && (
                     <td>

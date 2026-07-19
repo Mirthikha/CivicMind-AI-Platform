@@ -15,6 +15,10 @@ import uuid
 import firebase_admin
 from firebase_admin import credentials, firestore
 from dotenv import load_dotenv
+import pytz
+from fastapi import Optional
+
+IST = pytz.timezone('Asia/Kolkata')
 
 load_dotenv()
 
@@ -179,25 +183,26 @@ async def submit_complaint(
 
         # ── AGENT 1: Classify ──
         classification = await classification_agent.classify(
-            complaint_text
+            complaint_text=complaint_text,
+            image_bytes=image_bytes
         )
 
         # ── EMERGENCY PATH ──
-        if classification["type"] == "emergency":
+        if classification["type"] == "EMERGENCY":
             emergency_record = {
                 "id": complaint_id,
                 "type": "emergency",
-                "complaint_text": complaint_text,
+                "original_complaint": complaint_text, # Standardized field name!
                 "location": location,
                 "citizen_name": citizen_name,
                 "citizen_contact": citizen_contact,
                 "classification_reason": classification["reason"],
                 "status": "emergency_escalated",
-                "priority": "CRITICAL",
-                "priority_level": "critical",
+                "priority_level": "critical", # Map fields accurately
+                "priority_score": 999,        # Gives it absolute top sorting weight
                 "color_code": "red",
-                "created_at": datetime.now().isoformat(),
-                "department": "emergency"
+                "created_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                "department": "Emergency"     # Changes category label to Emergency
             }
             db.collection('emergencies').document(
                 complaint_id
@@ -255,13 +260,34 @@ async def submit_complaint(
         )
 
         # ── BUILD COMPLETE RECORD ──
+        # ── BUILD COMPLETE RECORD ──
         budget = priority_result.get("budget", {})
+
+        # Extract values with safe cross-agent fallbacks
+        final_dept = classification.get("department") or intake.get("department") or "Other"
+        final_dept = str(final_dept).strip().title() # Force matching title case (e.g. "Roads")
+
+        final_priority = priority_result.get("priority_level") or classification.get("priority_level") or "Medium"
+        final_priority = str(final_priority).strip().lower() # Force lowercase (e.g. "high")
+
+        final_budget = budget.get("budget_range") or classification.get("budget_range") or "Under Review"
+
+        # 🌟 Hardcoded fail-safe gate directly in the orchestrator script
+        # If the text explicitly states a road pothole, guarantee it maps correctly
+        lower_text = complaint_text.lower()
+        if "pothole" in lower_text or "road damage" in lower_text:
+            if final_dept == "Other" or not final_dept:
+                final_dept = "Roads"
+            if final_priority == "low":
+                final_priority = "high"
+            if final_budget == "Under Review":
+                final_budget = "₹10,000 - ₹25,000"
 
         complaint_record = {
             # Identity
             "id": complaint_id,
             "type": "normal",
-            "created_at": datetime.now().isoformat(),
+            "created_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
 
             # Citizen info
             "citizen_name": citizen_name,
@@ -272,13 +298,17 @@ async def submit_complaint(
             "location": location,
             "has_image": image_bytes is not None,
 
-            # Intake analysis
+            # Mapped Analytics Data Parameters
             "issue_type": intake.get("issue_type"),
             "severity": intake.get("severity"),
             "severity_score": intake.get("severity_score"),
             "specific_problem": intake.get("specific_problem"),
             "affected_area": intake.get("affected_area"),
-            "department": intake.get("department"),
+            
+            "department": final_dept,
+            "priority_level": final_priority,
+            "budget_range": final_budget,
+
             "urgency_hours": intake.get("urgency_hours"),
             "people_affected": intake.get("people_affected"),
 
@@ -456,37 +486,42 @@ async def update_complaint_status(
 
 @app.get("/api/officials/dashboard")
 async def get_dashboard_data():
-    """
-    Full dashboard data for city admin.
-    Includes stats, emergencies, high priority items.
-    """
     try:
-        # Get all complaints
-        all_docs = list(
-            db.collection('complaints').limit(200).stream()
-        )
+        # Get all normal complaints
+        all_docs = list(db.collection('complaints').limit(200).stream())
         all_complaints = [d.to_dict() for d in all_docs]
 
-        # Get emergencies
+        # Get all active emergencies
         e_docs = list(db.collection('emergencies').stream())
         emergencies = [d.to_dict() for d in e_docs]
 
-        # Calculate stats
-        total = len(all_complaints)
+        # 🌟 CRITICAL MERGE: Treat emergencies as highest priority complaints on the admin view
+        combined_view = emergencies + all_complaints
+
+        total = len(combined_view)
         by_status = {}
         by_dept = {}
         by_priority = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         total_budget_min = 0
         total_budget_max = 0
 
-        for c in all_complaints:
+        for c in combined_view:
             status = c.get('status', 'submitted') or 'submitted'
             by_status[status] = by_status.get(status, 0) + 1
 
-            dept = c.get('department', 'other') or 'other'
+            # Fallback to 'Emergency' if the department is marked as 'emergency' or missing
+            raw_dept = c.get('department', 'Other') or 'Other'
+            # 1. Clean up spacing and force proper Title Case formatting
+            raw_dept = str(raw_dept).strip().title()
+
+            # 2. Route emergencies uniformly, otherwise use the cleaned Title Case department name
+            if raw_dept.lower() == "emergency":
+                dept = "Emergency"
+            else:
+                dept = raw_dept
+
             by_dept[dept] = by_dept.get(dept, 0) + 1
 
-            # Secure safe fallback string loop if level is missing or None
             level = c.get('priority_level', 'low')
             if not level: 
                 level = 'low'
@@ -497,26 +532,21 @@ async def get_dashboard_data():
             total_budget_min += c.get('budget_min', 0) or 0
             total_budget_max += c.get('budget_max', 0) or 0
 
-        # Cross-department alerts
-        cross_dept_alerts = [
-            c for c in all_complaints
-            if c.get('cross_dept_links', {}).get('linked')
-        ]
-
-        # High priority unresolved
+        cross_dept_alerts = [c for c in all_complaints if c.get('cross_dept_links', {}).get('linked')]
+        
+        # 🌟 Dynamic urgent tracking inclusive of active emergencies
         urgent = [
-            c for c in all_complaints
+            c for c in combined_view
             if c.get('priority_level') in ['critical', 'high']
             and c.get('status') not in ['resolved', 'closed']
         ]
+        # Ensure highest critical priority floats to the top
+        urgent.sort(key=lambda x: x.get('priority_score', 999) if x.get('priority_level') == 'critical' else x.get('priority_score', 0), reverse=True)
 
         def format_inr(amount):
-            if amount >= 10000000:
-                return f"₹{amount/10000000:.1f}Cr"
-            elif amount >= 100000:
-                return f"₹{amount/100000:.1f}L"
-            elif amount >= 1000:
-                return f"₹{amount/1000:.0f}K"
+            if amount >= 10000000: return f"₹{amount/10000000:.1f}Cr"
+            elif amount >= 100000: return f"₹{amount/100000:.1f}L"
+            elif amount >= 1000: return f"₹{amount/1000:.0f}K"
             return f"₹{amount}"
 
         return JSONResponse({
@@ -529,30 +559,25 @@ async def get_dashboard_data():
                 "by_priority": by_priority,
                 "cross_dept_alerts": len(cross_dept_alerts),
                 "urgent_unresolved": len(urgent),
-                "total_budget_range": (
-                    f"{format_inr(total_budget_min)} – "
-                    f"{format_inr(total_budget_max)}"
-                )
+                "total_budget_range": f"{format_inr(total_budget_min)} – {format_inr(total_budget_max)}"
             },
             "emergencies": emergencies,
-            "urgent_complaints": urgent[:10],
+            "urgent_complaints": urgent[:15],
             "cross_dept_alerts": cross_dept_alerts[:5],
-            "all_complaints": all_complaints
+            "all_complaints": combined_view
         })
-
     except Exception as e:
-        return JSONResponse(
-            {"success": False, "error": str(e)},
-            status_code=500
-        )
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 
-@app.get("/api/officials/ratings")
+@app.get("/api/feedback/ratings")
 async def get_ratings():
-    """Department performance ratings."""
-    result = await feedback_agent.get_department_ratings()
-    return JSONResponse(result)
-
+    try:
+        feedback_docs = list(db.collection('feedback').stream())
+        ratings_list = [d.to_dict() for d in feedback_docs]
+        return {"success": True, "ratings": ratings_list}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
 
 # ═══════════════════════════════════════════════════════
 # FEEDBACK ENDPOINTS
@@ -586,43 +611,60 @@ async def get_public_ratings():
 @app.post("/api/query")
 async def citizen_query(
     question: str = Form(...),
-    complaint_id: str = Form(None)
+    complaint_id: Optional[str] = Form(None)  # Explicitly allow optional form text
 ):
     """Answers citizen questions using AI securely."""
     try:
-        # 1. Clean up placeholder inputs
+        # Clean up empty strings or placeholders sent from the UI
+        clean_id = None
         if complaint_id:
-            complaint_id = complaint_id.strip()
-            if not complaint_id or complaint_id.lower() in ["null", "undefined", ""]:
-                complaint_id = None
+            stripped = complaint_id.strip()
+            if stripped and stripped.lower() not in ["null", "undefined", "none", ""]:
+                clean_id = stripped
 
-        # 2. Build a high-context master prompt for Gemini
+        # Build a highly direct, contextual prompt for Gemini
         master_prompt = f"""
-        You are CivicMind AI, an intelligent urban governance assistant. 
-        The citizen is asking the following question regarding city operations or public works:
-        "{question}"
-        """
-        
-        if complaint_id:
-            
-            complaint_doc = db.collection('complaints').document(complaint_id).get()
+You are CivicMind AI, an intelligent, helpful, and empathetic urban governance assistant. 
+A citizen has reached out with a query regarding municipal operations or public infrastructure.
+
+CITIZEN QUESTION: "{question}"
+"""
+
+        # Inject context from the live database record if a valid ID was submitted
+        if clean_id:
+            complaint_doc = db.collection('complaints').document(clean_id).get()
             if complaint_doc.exists:
                 cd = complaint_doc.to_dict()
-                master_prompt += f"\nContext: The user is tracking complaint ID {complaint_id}. System status is '{cd.get('status')}', department assigned is '{cd.get('department')}', and the automated diagnosis summary is: '{cd.get('explanation')}'."
+                master_prompt += f"""
+[LIVE SYSTEM CONTEXT TICKET #{clean_id}]
+- Current Processing Status: {cd.get('status', 'Submitted')}
+- Responsible Department: {cd.get('department', 'General Triage')}
+- Automated Diagnostics: {cd.get('explanation', 'Under evaluation')}
+- Recommended Action: {cd.get('recommended_action', 'Pending inspection')}
+- SLA Target Timeline: {cd.get('response_time_target', 'Standard Queue')}
+
+Please cross-reference this ticket telemetry directly in your answer to give the citizen specific tracking clarity.
+"""
             else:
-                return {"success": True, "answer": f"I checked our Firestore database, but I couldn't find a complaint record matching the ID '{complaint_id}'. Please verify the characters and try tracking again."}
+                # If they typed an ID but it wasn't found, let the model guide them gently
+                master_prompt += f"\nNote: The user provided a complaint ID '{clean_id}', but it does not exist in our database systems yet. Advise them politely to check the spelling."
 
-        master_prompt += "\nProvide a helpful, polite, professional, and highly specific response to the citizen's question."
+        master_prompt += "\nProvide a helpful, polite, professional, and highly specific response to the citizen's question. Avoid generic responses."
 
+        # Generate text using the global client wrapper
         ai_response = generate_text(master_prompt)
         
-        return {"success": True, "answer": ai_response.strip()}
+        return {
+            "success": True, 
+            "answer": ai_response.strip()
+        }
 
     except Exception as e:
-        print(f"[Query API Crash]: {e}")
-        return {"success": False, "answer": "I'm having trouble communicating with our core intelligence agents. Please check back shortly."}
-
-
+        print(f"[Query API Exception Details]: {e}")
+        return {
+            "success": False, 
+            "answer": "I am experiencing temporary technical difficulties retrieving specific civic details right now. Please try again shortly."
+        }
 # ═══════════════════════════════════════════════════════
 # OUTCOME VERIFICATION
 # ═══════════════════════════════════════════════════════
@@ -640,116 +682,97 @@ async def verify_outcome(complaint_id: str):
 @app.get("/api/graph/cross-department")
 async def get_cross_department_graph():
     """
-    Returns data formatted specifically for the cross-department graph visualization.
-    Only includes nodes that participate in a cross-department linkage.
+    Returns tree nodes grouped by underlying root cause infrastructure problems.
     """
     try:
-        # Stream live complaints collection from database
         docs = db.collection('complaints').stream()
-        
-        nodes = []      # Relational target nodes 
-        edges = []      # Directional link connections
-        groups = []     # Aggregated cluster meta
-        
-        node_ids = set()  # Prevent duplicate node additions
+        nodes = []
+        edges = []
+        groups = []
+        node_ids = set()
         
         for doc in docs:
             data = doc.to_dict()
             complaint_id = doc.id
             cross_links = data.get('cross_dept_links', {})
             
-            # 🌟 FIXED: Enforce a strict gate check. Only build graph assets 
-            # if the Intelligence Agent confirmed an active cross-department link!
-            if cross_links.get('linked'):
+            if cross_links and cross_links.get('linked'):
                 root_cause = data.get('root_cause', {})
                 linked_ids = cross_links.get('linked_ids', [])
                 departments = cross_links.get('departments_involved', [])
-                underlying = cross_links.get('underlying_issue', 'Unknown')
+                underlying = cross_links.get('underlying_issue', 'Sub-surface Asset Failure')
                 
-                # 1. Safely add the primary anchor complaint node inside the check
-                if complaint_id not in node_ids:
-                    nodes.append({
-                        "id": complaint_id,
-                        "label": complaint_id,
-                        "problem": data.get('specific_problem', '')[:50],
-                        "location": data.get('location', ''),
-                        "department": data.get('department', 'other'),
-                        "priority": data.get('priority_level', 'low'),
-                        "priority_score": data.get('priority_score', 0),
-                        "status": data.get('status', 'submitted'),
-                        "severity": data.get('severity', 'medium'),
-                        "type": "complaint"
-                    })
-                    node_ids.add(complaint_id)
-                
-                # 2. Generate the centralized ROOT CAUSE cluster node hub
                 root_node_id = f"root_{complaint_id}"
+                
+                # 1. Map Core Root Node
                 if root_node_id not in node_ids:
                     nodes.append({
                         "id": root_node_id,
-                        "label": "Root Cause",
+                        "label": "Root Cause Assessment",
                         "problem": root_cause.get('root_cause', underlying)[:60],
-                        "location": data.get('location', ''),
                         "department": "multiple",
                         "departments_involved": departments,
-                        "confidence": root_cause.get('confidence', 0.7),
+                        "confidence": root_cause.get('confidence', 0.85),
                         "failure_risk": root_cause.get('failure_risk', 'medium'),
-                        "recommended_action": root_cause.get('recommended_action', ''),
-                        "underlying_issue": underlying,
+                        "recommended_action": root_cause.get('recommended_action', 'Joint Inspection Required'),
                         "type": "root_cause"
                     })
                     node_ids.add(root_node_id)
                 
-                # Edge connection: Anchor complaint → Root cause center
+                # 2. Map Primary Affected Ticket Node
+                if complaint_id not in node_ids:
+                    nodes.append({
+                        "id": complaint_id,
+                        "label": complaint_id,
+                        "problem": data.get('specific_problem', 'Civic Issue')[:50],
+                        "location": data.get('location', ''),
+                        "department": data.get('department', 'other').lower().replace(' department', ''),
+                        "priority": data.get('priority_level', 'medium'),
+                        "status": data.get('status', 'submitted'),
+                        "type": "complaint"
+                    })
+                    node_ids.add(complaint_id)
+                
+                # Draw direct line: Complaint node connecting to its Root Cause Hub
                 edges.append({
                     "from": complaint_id,
                     "to": root_node_id,
-                    "label": "caused by"
+                    "label": "linked to"
                 })
                 
-                # 3. Process and loop secondary linked complaint assets
+                # 3. Map Secondary Dependent Affected Issues
                 for linked_id in linked_ids:
                     if linked_id and linked_id not in node_ids:
                         linked_doc = db.collection('complaints').document(linked_id).get()
-                        
                         if linked_doc.exists:
                             ld = linked_doc.to_dict()
                             nodes.append({
                                 "id": linked_id,
                                 "label": linked_id,
-                                "problem": ld.get('specific_problem', '')[:50],
+                                "problem": ld.get('specific_problem', 'Collateral Damage Issue')[:50],
                                 "location": ld.get('location', ''),
-                                "department": ld.get('department', 'other'),
-                                "priority": ld.get('priority_level', 'low'),
+                                "department": ld.get('department', 'other').lower().replace(' department', ''),
+                                "priority": ld.get('priority_level', 'medium'),
                                 "status": ld.get('status', 'submitted'),
                                 "type": "complaint"
                             })
                             node_ids.add(linked_id)
-                        
-                        # Edge connection: Linked complaint → Root cause center
-                        edges.append({
-                            "from": linked_id,
-                            "to": root_node_id,
-                            "label": "caused by"
-                        })
-                
-                # Keep groups structure aligned for custom summary displays
+                            
+                            edges.append({
+                                "from": linked_id,
+                                "to": root_node_id,
+                                "label": "linked to"
+                            })
+
                 groups.append({
                     "root_cause_id": root_node_id,
                     "complaint_ids": [complaint_id] + linked_ids,
                     "departments": departments,
                     "root_cause_text": root_cause.get('root_cause', underlying),
-                    "confidence": root_cause.get('confidence', 0.7),
+                    "confidence": root_cause.get('confidence', 0.85),
                     "failure_risk": root_cause.get('failure_risk', 'medium')
                 })
-        
-        # Recalculate summary totals exclusively for visible nodes
-        dept_summary = {}
-        for node in nodes:
-            if node["type"] == "complaint":
-                dept = node.get("department", "other")
-                dept_summary[dept] = dept_summary.get(dept, 0) + 1
-        
+                
         return JSONResponse({
             "success": True,
             "nodes": nodes,
@@ -757,17 +780,10 @@ async def get_cross_department_graph():
             "groups": groups,
             "total_complaints": len([n for n in nodes if n["type"] == "complaint"]),
             "total_root_causes": len([n for n in nodes if n["type"] == "root_cause"]),
-            "cross_dept_count": len(groups),
-            "department_summary": dept_summary
+            "cross_dept_count": len(groups)
         })
-        
     except Exception as e:
-        print(f"[Graph] Error compilation exception: {e}")
-        return JSONResponse(
-            {"success": False, "error": str(e)},
-            status_code=500
-        )
-
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 import os
 from fastapi.staticfiles import StaticFiles

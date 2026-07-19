@@ -1,12 +1,8 @@
-from backend.gemini_client import generate_text
+import json
+from backend.gemini_client import generate_text, generate_with_image
 
 class ClassificationAgent:
-    """
-    AGENT 1: Classification Agent
-    First agent that runs for every complaint.
-    Decides: EMERGENCY or NORMAL
-    """
-    
+
     def __init__(self):
         self.emergency_keywords = [
             "gas leak", "gas smell", "fire", "burning",
@@ -16,81 +12,83 @@ class ClassificationAgent:
             "sinkhole", "unconscious"
         ]
     
-    async def classify(self, complaint_text: str) -> dict:
+    async def classify(self, complaint_text: str, image_bytes: bytes = None) -> dict:
         
-        # Step 1: Check keywords first (instant, no AI needed)
-        text_lower = complaint_text.lower()
-        for keyword in self.emergency_keywords:
-            if keyword in text_lower:
-                return {
-                    "type": "emergency",
-                    "reason": f"Emergency keyword detected: '{keyword}'",
-                    "confidence": 0.98,
-                    "method": "keyword_detection"
-                }
+        # ── PATH A: KEYWORD CHECK (Only if no image is attached) ──
+        if not image_bytes:
+            text_lower = complaint_text.lower()
+            for keyword in self.emergency_keywords:
+                if keyword in text_lower:
+                    return {
+                        "type": "emergency",
+                        "reason": f"Emergency keyword detected: '{keyword}'",
+                        "confidence": 0.98,
+                        "method": "keyword_detection"
+                    }
         
-        # Step 2: Ask Gemini for unclear cases
+        # ── PATH B: AI MULTIMODAL / TEXT CLASSIFICATION ──
         prompt = f"""
-You are a classification system for a city civic complaint platform.
+You are the primary automated operational triage gateway for a municipal governance platform.
+Your single responsibility is to analyze the provided input data streams and classify the ticket into a precise emergency tier.
 
-Read this complaint and classify it as EMERGENCY or NORMAL.
+[INPUT AVAILABILITY]
+- You are receiving a text segment containing the citizen's description.
+- You may also receive an accompanying image asset passed directly within the multimodal content stream.
 
-EMERGENCY = Immediate threat to human life RIGHT NOW.
-Only these qualify: gas leaks, fires, building collapse, 
-flooding trapping people, live electrical wires touching people.
+[OPERATIONAL TAXONOMY & DECISION MATRIX]
+1. EMERGENCY: An active, unfolding incident presenting an immediate, direct threat to human life RIGHT NOW. 
+   - Exclusively limited to: active structural or building fires, catastrophic building or road collapses, major sinkholes, flash flooding actively trapping citizens or vehicles, uncontrolled gas leaks/vapors, or exposed high-voltage live electrical infrastructure.
+2. NORMAL: Standard civic infrastructure degradation, maintenance requirements, public nuisances, or service disruptions.
+   - Includes: Standard potholes, road defects, uncollected refuse, non-functional streetlights, or static municipal water supply latency.
 
-A pothole, broken streetlight, garbage, or water supply issue
-is NEVER an emergency even if it caused past accidents.
+[CRITICAL MULTIMODAL CONSTRAINTS]
+- A maintenance defect (e.g., a deep pothole or dark street) is strictly NORMAL, regardless of emotional distress expressed in the text.
+- VISUAL OVERRIDE STRATEGY: If an image is present, analyze the visual telemetry thoroughly alongside the text. If the text description is vague or ambiguous (e.g., "look at this", "help me"), but the image displays an active, undeniable life-threatening incident listed under EMERGENCY, you MUST classify the ticket as EMERGENCY.
+- If the inputs consist of irrelevant content, gibberish, or empty data, classify the ticket as NORMAL and specify the irrelevance in the reason string.
 
-NORMAL = Important problem but not immediately dangerous.
-Examples: potholes, garbage, broken streetlight, water supply issue.
+CITIZEN TEXT DESCRIPTION: "{complaint_text}"
 
-CITIZEN COMPLAINT: "{complaint_text}"
+[OUTPUT FORMAT]
+You must respond with a single valid JSON object matching this schema exactly. Do not output any conversational text, markdown formatting, or trailing data outside the JSON structure.
 
-Reply in EXACTLY this format, nothing else:
-TYPE: EMERGENCY or NORMAL
-REASON: one sentence why
-CONFIDENCE: number between 0.0 and 1.0
+{{
+    "type": "EMERGENCY",
+    "reason": "A singular, objective sentence explaining the specific presence of an immediate life threat based on text/visual evidence.",
+    "confidence_score": 1.0
+}}
 """
         
         try:
-            result_text = generate_text(prompt)
-            lines = result_text.strip().split('\n')
+            # Dynamically route based on whether visual data is present
+            if image_bytes:
+                result_text = generate_with_image(prompt, image_bytes)
+                method_used = "ai_multimodal_classification"
+            else:
+                result_text = generate_text(prompt)
+                method_used = "ai_text_classification"
             
-            complaint_type = "normal"
-            reason = "Standard civic complaint"
-            confidence = 0.80
-            
-            for line in lines:
-                line = line.strip()
-                if line.startswith("TYPE:"):
-                    value = line.replace("TYPE:", "").strip().upper()
-                    complaint_type = "emergency" if "EMERGENCY" in value else "normal"
-                elif line.startswith("REASON:"):
-                    reason = line.replace("REASON:", "").strip()
-                elif line.startswith("CONFIDENCE:"):
-                    try:
-                        confidence = float(
-                            line.replace("CONFIDENCE:", "").strip()
-                        )
-                    except:
-                        confidence = 0.80
+            # Clean JSON formatting block if Gemini wraps it in markdown backticks
+            if "```json" in result_text:
+                result_text = result_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in result_text:
+                result_text = result_text.split("```")[1].split("```")[0].strip()
+                
+            data = json.loads(result_text.strip())
             
             return {
-                "type": complaint_type,
-                "reason": reason,
-                "confidence": confidence,
-                "method": "ai_classification"
+                "type": str(data.get("type", "NORMAL")).lower(),
+                "reason": data.get("reason", "Processed via AI engine."),
+                "confidence": float(data.get("confidence_score", 0.85)),
+                "method": method_used
             }
             
         except Exception as e:
             print(f"Classification error: {e}")
             return {
                 "type": "normal",
-                "reason": "Classification unavailable, defaulted to normal",
+                "reason": "Classification engine exception, defaulted securely to normal path.",
                 "confidence": 0.50,
                 "method": "fallback"
             }
-
 
 classification_agent = ClassificationAgent()

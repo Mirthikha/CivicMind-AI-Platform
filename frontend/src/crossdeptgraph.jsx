@@ -17,12 +17,12 @@ const PRIORITY_COLORS = { critical: '#FEB2B2', high: '#FBD38D', medium: '#FAF089
 
 // 🔍 Find your ComplaintNode component and update these two lines:
 
+// 1. Force lowercase fallback keys inside ComplaintNode to prevent layout breaks
 function ComplaintNode({ data }) {
-  // Convert incoming string to lowercase to perfectly match your DEPT_COLORS map
-  const deptKey = (data.department || 'other').toLowerCase();
+  const deptKey = (data.department || 'other').toLowerCase().replace(' department', '').strip();
   const colors = DEPT_COLORS[deptKey] || DEPT_COLORS.other;
   
-  const priorityColor = PRIORITY_COLORS[data.priority] || '#E2E8F0';
+  const priorityColor = PRIORITY_COLORS[(data.priority || 'medium').toLowerCase()] || '#E2E8F0';
   return (
     <div style={{ background: colors.bg, border: `2px solid ${colors.border}`, borderRadius: '12px', padding: '12px', minWidth: '180px', maxWidth: '200px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', fontSize: '12px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
@@ -35,6 +35,72 @@ function ComplaintNode({ data }) {
       <div style={{ marginTop: '6px', padding: '2px 8px', background: data.status === 'resolved' ? '#C6F6D5' : '#EBF8FF', borderRadius: '999px', fontSize: '10px', textAlign: 'center', color: data.status === 'resolved' ? '#276749' : '#2C5282' }}>{data.status}</div>
     </div>
   );
+}
+
+// 2. Clear Tree Geometry Calculation (Neat parent-child layout mapping)
+function calculateLayout(rawNodes, rawEdges) {
+  const rootCauses = rawNodes.filter(n => n.type === 'root_cause');
+  const complaints  = rawNodes.filter(n => n.type === 'complaint');
+  const layoutNodes = [];
+  
+  const HORIZONTAL_SPACING = 350;
+  const VERTICAL_SPACING = 150;
+
+  rootCauses.forEach((rc, i) => {
+    // Position the central root cause node cleanly in the center row
+    const centerX = i * HORIZONTAL_SPACING * 2;
+    layoutNodes.push({ 
+      id: rc.id, 
+      type: 'root_cause', 
+      position: { x: centerX, y: 250 }, 
+      data: rc 
+    });
+
+    // Find all complaints linked to this root cause
+    const connectedEdges = rawEdges.filter(e => e.to === rc.id || e.from === rc.id);
+    const connectedIds = connectedEdges.map(e => e.from === rc.id ? e.to : e.from);
+    const connectedComplaints = complaints.filter(c => connectedIds.includes(c.id));
+
+    // Distribute complaints evenly around the root cause node
+    connectedComplaints.forEach((c, j) => {
+      const angle = (j / connectedComplaints.length) * 2 * Math.PI;
+      const xOffset = Math.cos(angle) * 180;
+      const yOffset = Math.sin(angle) * 180;
+
+      layoutNodes.push({
+        id: c.id,
+        type: 'complaint',
+        position: { x: centerX + xOffset, y: 250 + yOffset },
+        data: c
+      });
+    });
+  });
+
+  // Catch isolated nodes safely
+  const placedIds = new Set(layoutNodes.map(n => n.id));
+  const isolated = complaints.filter(c => !placedIds.has(c.id));
+  isolated.forEach((c, i) => {
+    layoutNodes.push({ 
+      id: c.id, 
+      type: 'complaint', 
+      position: { x: i * HORIZONTAL_SPACING, y: 600 }, 
+      data: c 
+    });
+  });
+
+  const layoutEdges = rawEdges.map((e, i) => ({
+    id: `edge-${i}`, 
+    source: e.from, 
+    target: e.to, 
+    label: e.label || "caused by", 
+    type: 'smoothstep', 
+    animated: true,
+    markerEnd: { type: MarkerType.ArrowClosed, color: '#805AD5' },
+    style: { stroke: '#805AD5', strokeWidth: 2 },
+    labelStyle: { fontSize: 10, fill: '#805AD5', fontWeight: 600 }
+  }));
+
+  return { layoutNodes, layoutEdges };
 }
 
 function RootCauseNode({ data }) {
