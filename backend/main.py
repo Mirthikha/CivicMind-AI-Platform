@@ -57,7 +57,7 @@ from agents.explainability_agent import explainability_agent
 from agents.tracking_agent import tracking_agent
 from agents.feedback_agent import feedback_agent
 from agents.query_agent import query_agent
-from backend.gemini_client import generate_text
+from gemini_client import generate_text
 
 # ─────────────────────────────────────────
 # Create FastAPI App
