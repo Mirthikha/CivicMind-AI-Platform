@@ -893,9 +893,9 @@ function CitizenRatings({ showToast }) {
 }
 
 const defaultRatings = [
-  { department: "Water Department", icon: "water", rating: 4.2, responses: 218, comments: ["Quick valve repair", "Helpful updates"] },
-  { department: "Roads Department", icon: "roads", rating: 3.9, responses: 184, comments: ["Pothole fixed in two days", "Needs faster resurfacing"] },
-  { department: "Electricity Department", icon: "electric", rating: 4.5, responses: 261, comments: ["Streetlight repaired", "Clear communication"] }
+  { department: "Water Department", icon: "water", rating: 0, responses: 0, comments: [] },
+  { department: "Roads Department", icon: "roads", rating: 0, responses: 0, comments: [] },
+  { department: "Electricity Department", icon: "electric", rating: 0, responses: 0, comments: [] }
 ];
 
 function OfficialDashboard() {
@@ -1097,15 +1097,15 @@ function CrossDeptAlerts() {
 
 function OfficialRatings() {
   const [ratings, setRatings] = useState(defaultRatings);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.get("/api/feedback/ratings")
       .then(({ data }) => {
-        // Extract raw feedback entries list sent by backend
         const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
         if (!realReviews || realReviews.length === 0) return;
 
-        // Group and calculate dynamic metrics per department
+        // Group ratings by department
         const aggregated = {};
         realReviews.forEach((review) => {
           const rawDept = (review.department || "Other").replace(" Department", "").trim();
@@ -1125,17 +1125,17 @@ function OfficialRatings() {
           }
         });
 
+        // Merge live ratings over default categories
         const merged = defaultRatings.map((defaultDept) => {
           const key = defaultDept.department.replace(" Department", "").trim();
           const stats = aggregated[key];
 
           if (stats && stats.count > 0) {
-            const avg = (stats.total / stats.count).toFixed(1);
             return {
               ...defaultDept,
-              rating: avg,
+              rating: (stats.total / stats.count).toFixed(1),
               responses: stats.count,
-              comments: stats.comments.length > 0 ? stats.comments.slice(-2) : defaultDept.comments
+              comments: stats.comments.length > 0 ? stats.comments.slice(-2) : ["Great service!"]
             };
           }
           return defaultDept;
@@ -1143,17 +1143,22 @@ function OfficialRatings() {
 
         setRatings(merged);
       })
-      .catch((err) => console.error("Error fetching ratings:", err));
+      .catch((err) => console.error("Error loading ratings:", err))
+      .finally(() => setLoading(false));
   }, []);
 
   return (
     <Shell type="official">
       <PageHeader title="Performance Ratings" subtitle="Department-wise service satisfaction" />
-      <div className="rating-grid">
-        {ratings.map((dept) => (
-          <RatingCard key={dept.department} dept={dept} />
-        ))}
-      </div>
+      {loading ? (
+        <LoadingBlock />
+      ) : (
+        <div className="rating-grid">
+          {ratings.map((dept) => (
+            <RatingCard key={dept.department} dept={dept} />
+          ))}
+        </div>
+      )}
     </Shell>
   );
 }
