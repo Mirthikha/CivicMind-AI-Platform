@@ -1101,34 +1101,59 @@ function OfficialRatings() {
   useEffect(() => {
     api.get("/api/feedback/ratings")
       .then(({ data }) => {
+        // Extract raw feedback entries list sent by backend
         const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
-        if (realReviews.length === 0) return;
+        if (!realReviews || realReviews.length === 0) return;
 
-        const merged = defaultRatings.map(defaultDept => {
-          const match = realReviews.find(
-            r => r.department?.toLowerCase().includes(defaultDept.department.split(" ")[0].toLowerCase())
-          );
-          if (match) {
+        // Group and calculate dynamic metrics per department
+        const aggregated = {};
+        realReviews.forEach((review) => {
+          const rawDept = (review.department || "Other").replace(" Department", "").trim();
+          const cleanDept = rawDept.charAt(0).toUpperCase() + rawDept.slice(1).toLowerCase();
+          
+          if (!aggregated[cleanDept]) {
+            aggregated[cleanDept] = { total: 0, count: 0, comments: [] };
+          }
+          
+          const ratingVal = parseFloat(review.rating) || 0;
+          if (ratingVal > 0) {
+            aggregated[cleanDept].total += ratingVal;
+            aggregated[cleanDept].count += 1;
+          }
+          if (review.comment) {
+            aggregated[cleanDept].comments.push(review.comment);
+          }
+        });
+
+        const merged = defaultRatings.map((defaultDept) => {
+          const key = defaultDept.department.replace(" Department", "").trim();
+          const stats = aggregated[key];
+
+          if (stats && stats.count > 0) {
+            const avg = (stats.total / stats.count).toFixed(1);
             return {
               ...defaultDept,
-              rating: match.rating ? parseFloat(match.rating).toFixed(1) : defaultDept.rating,
-              responses: match.responses || defaultDept.responses + 1,
-              comments: match.comments && match.comments.length > 0 
-                ? [...match.comments, ...defaultDept.comments].slice(0, 3)
-                : [match.comment || "Great service!", ...defaultDept.comments].filter(Boolean).slice(0, 3)
+              rating: avg,
+              responses: stats.count,
+              comments: stats.comments.length > 0 ? stats.comments.slice(-2) : defaultDept.comments
             };
           }
           return defaultDept;
         });
+
         setRatings(merged);
       })
-      .catch(() => null);
+      .catch((err) => console.error("Error fetching ratings:", err));
   }, []);
 
   return (
     <Shell type="official">
       <PageHeader title="Performance Ratings" subtitle="Department-wise service satisfaction" />
-      <div className="rating-grid">{ratings.map((dept) => <RatingCard key={dept.department} dept={dept} />)}</div>
+      <div className="rating-grid">
+        {ratings.map((dept) => (
+          <RatingCard key={dept.department} dept={dept} />
+        ))}
+      </div>
     </Shell>
   );
 }
