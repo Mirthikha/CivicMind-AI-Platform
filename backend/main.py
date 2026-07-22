@@ -188,34 +188,36 @@ async def submit_complaint(
         )
 
         # ── EMERGENCY PATH ──
-        if classification["type"] == "EMERGENCY":
+        if str(classification.get("type", "")).upper() == "EMERGENCY":
             emergency_record = {
                 "id": complaint_id,
+                "complaint_id": complaint_id,
                 "type": "emergency",
-                "original_complaint": complaint_text, # Standardized field name!
+                "original_complaint": complaint_text,
+                "problem": complaint_text,
                 "location": location,
                 "citizen_name": citizen_name,
                 "citizen_contact": citizen_contact,
-                "classification_reason": classification["reason"],
+                "classification_reason": classification.get("reason", "Life-threatening incident detected."),
                 "status": "emergency_escalated",
-                "priority_level": "critical", # Map fields accurately
-                "priority_score": 999,        # Gives it absolute top sorting weight
+                "priority_level": "critical",
+                "priority_score": 999,
                 "color_code": "red",
-                "created_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
-                "department": "Emergency"     # Changes category label to Emergency
+                "department": "Emergency",
+                "created_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
             }
-            db.collection('emergencies').document(
-                complaint_id
-            ).set(emergency_record)
+
+            # 1. Save into 'emergencies' collection for emergency banners
+            db.collection('emergencies').document(complaint_id).set(emergency_record)
+
+            # 2. ALSO save into 'complaints' collection so citizen tracking and official queries find it!
+            db.collection('complaints').document(complaint_id).set(emergency_record)
 
             return JSONResponse({
                 "success": True,
                 "complaint_id": complaint_id,
                 "type": "emergency",
-                "message": (
-                    "🚨 Emergency detected! Officials have been "
-                    "alerted immediately."
-                ),
+                "message": "🚨 Emergency detected! Officials have been alerted immediately.",
                 "status": "emergency_escalated"
             })
 

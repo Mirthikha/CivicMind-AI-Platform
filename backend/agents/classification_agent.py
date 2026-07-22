@@ -14,13 +14,13 @@ class ClassificationAgent:
     
     async def classify(self, complaint_text: str, image_bytes: bytes = None) -> dict:
         
-        # ── PATH A: KEYWORD CHECK (Only if no image is attached) ──
+        # ── PATH A: KEYWORD CHECK ──
         if not image_bytes:
             text_lower = complaint_text.lower()
             for keyword in self.emergency_keywords:
                 if keyword in text_lower:
                     return {
-                        "type": "emergency",
+                        "type": "EMERGENCY", 
                         "reason": f"Emergency keyword detected: '{keyword}'",
                         "confidence": 0.98,
                         "method": "keyword_detection"
@@ -76,7 +76,7 @@ You must respond with a single valid JSON object matching this schema exactly. D
             data = json.loads(result_text.strip())
             
             return {
-                "type": str(data.get("type", "NORMAL")).lower(),
+                "type": str(data.get("type", "NORMAL")).strip().upper(), 
                 "reason": data.get("reason", "Processed via AI engine."),
                 "confidence": float(data.get("confidence_score", 0.85)),
                 "method": method_used

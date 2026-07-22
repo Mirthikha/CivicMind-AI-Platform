@@ -1,11 +1,6 @@
 from backend.gemini_client import generate_text, generate_with_image
 
 class IntakeAgent:
-    """
-    AGENT 2: Intake Agent
-    Reads raw complaint (text + optional photo)
-    Extracts clean structured information
-    """
     
     async def process(self,
                       complaint_text: str,

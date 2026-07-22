@@ -88,7 +88,9 @@ const statusColors = {
   under_review: "info",
   in_progress: "warning",
   resolved: "success",
-  disputed: "danger"
+  disputed: "danger",
+  emergency_escalated: "danger", 
+  emergency: "danger"           
 };
 
 const statusLabels = {
@@ -96,7 +98,9 @@ const statusLabels = {
   under_review: "Under Review",
   in_progress: "In Progress",
   resolved: "Resolved",
-  disputed: "Reopened"
+  disputed: "Reopened",
+  emergency_escalated: "🚨 Emergency Dispatched", 
+  emergency: "🚨 Emergency"                      
 };
 
 const priorityLabels = {
@@ -919,12 +923,9 @@ function OfficialDashboard() {
 
   if (loading) return <Shell type="official"><LoadingBlock /></Shell>;
 
-  const emergencies = data.complaints.filter((item) => (item.priority_level || item.priority || "").toLowerCase() === "critical");
-  const statusData = Object.entries(groupCount(data.complaints, "status")).map(([name, value]) => ({ name: statusLabels[name] || name, value }));
-  const deptData = Object.entries(groupCount(data.complaints, "department")).map(([department, count]) => ({ department, count }));
-
   return (
     <Shell type="official">
+      {/* 🚨 Emergency Alert Banner */}
       {data.emergencies && data.emergencies.length > 0 && (
         <section className="emergency-banner" style={{ backgroundColor: "#fee2e2", borderLeft: "6px solid #dc2626", padding: "16px", borderRadius: "8px", marginBottom: "20px", color: "#991b1b", display: "flex", alignItems: "center", gap: "12px", textAlign: "left" }}>
           <AlertTriangle size={28} style={{ color: "#dc2626" }} /> 
@@ -935,13 +936,7 @@ function OfficialDashboard() {
         </section>
       )}
 
-      <div className="stats-grid">
-        <StatCard title="Total Complaints" value={data.complaints.length} tone="purple" />
-        <StatCard title="Emergencies" value={data.emergencies.length} tone="red" />
-        <StatCard title="Critical" value={emergencies.length} tone="orange" />
-        <StatCard title="Total Budget Range" value={data.stats.total_budget_range || "N/A"} tone="green" />
-      </div>
-
+      {/* 📊 Metrics Stat Cards */}
       <div className="stats-grid">
         <StatCard 
           title="Total Complaints" 
@@ -950,7 +945,7 @@ function OfficialDashboard() {
         />
         <StatCard 
           title="Emergencies" 
-          value={data.stats?.total_emergencies ?? 0} 
+          value={data.stats?.total_emergencies ?? data.emergencies.length} 
           tone="red" 
         />
         <StatCard 

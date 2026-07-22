@@ -94,7 +94,7 @@ COMPLAINT DETAILS:
 - Filed on: {data.get('created_at')}
 - Progress: {data.get('progress_updates', [])}
 
-Write a friendly, clear response in 2-3 sentences.
+Write a friendly, clear response in maximum of 2-3 sentences.
 Tell them the current status and what to expect next.
 """
                     answer = generate_text(prompt)
