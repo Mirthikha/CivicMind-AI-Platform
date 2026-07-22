@@ -925,13 +925,41 @@ function OfficialDashboard() {
 
   return (
     <Shell type="official">
-      {/* 🚨 Emergency Alert Banner */}
+      {/* 🚨 HIGH-VISIBILITY RED EMERGENCY ALERT BANNER */}
       {data.emergencies && data.emergencies.length > 0 && (
-        <section className="emergency-banner" style={{ backgroundColor: "#fee2e2", borderLeft: "6px solid #dc2626", padding: "16px", borderRadius: "8px", marginBottom: "20px", color: "#991b1b", display: "flex", alignItems: "center", gap: "12px", textAlign: "left" }}>
-          <AlertTriangle size={28} style={{ color: "#dc2626" }} /> 
+        <section 
+          className="emergency-banner" 
+          style={{ 
+            backgroundColor: "#7f1d1d", 
+            borderLeft: "8px solid #ef4444", 
+            padding: "20px", 
+            borderRadius: "12px", 
+            marginBottom: "24px", 
+            color: "#ffffff", 
+            display: "flex", 
+            alignItems: "center", 
+            gap: "16px", 
+            textAlign: "left",
+            boxShadow: "0 10px 25px -5px rgba(220, 38, 38, 0.5), 0 8px 10px -6px rgba(220, 38, 38, 0.5)"
+          }}
+        >
+          <div style={{ 
+            backgroundColor: "#dc2626", 
+            padding: "12px", 
+            borderRadius: "50%", 
+            display: "flex", 
+            alignItems: "center", 
+            justifyContent: "center" 
+          }}>
+            <AlertTriangle size={32} style={{ color: "#ffffff" }} /> 
+          </div>
           <div>
-            <strong style={{ fontSize: "18px", display: "block" }}>🚨 {data.emergencies.length} ACTIVE LIFE-THREATENING EMERGENCIES UNRESOLVED</strong>
-            <span style={{ fontSize: "14px", color: "#7f1d1d" }}>Immediate Dispatch Required For Ticket IDs: {data.emergencies.map((item) => item.id || item.complaint_id).join(", ")}</span>
+            <strong style={{ fontSize: "20px", display: "block", color: "#fef2f2", letterSpacing: "0.5px" }}>
+              🚨 CRITICAL ALERT: {data.emergencies.length} ACTIVE LIFE-THREATENING EMERGENCY UNRESOLVED
+            </strong>
+            <span style={{ fontSize: "15px", color: "#fca5a5", marginTop: "4px", display: "block" }}>
+              Immediate Dispatch Required For Ticket IDs: {data.emergencies.map((item) => item.id || item.complaint_id).join(", ")}
+            </span>
           </div>
         </section>
       )}
@@ -1068,10 +1096,39 @@ function CrossDeptAlerts() {
 }
 
 function OfficialRatings() {
+  const [ratings, setRatings] = useState(defaultRatings);
+
+  useEffect(() => {
+    api.get("/api/feedback/ratings")
+      .then(({ data }) => {
+        const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
+        if (realReviews.length === 0) return;
+
+        const merged = defaultRatings.map(defaultDept => {
+          const match = realReviews.find(
+            r => r.department?.toLowerCase().includes(defaultDept.department.split(" ")[0].toLowerCase())
+          );
+          if (match) {
+            return {
+              ...defaultDept,
+              rating: match.rating ? parseFloat(match.rating).toFixed(1) : defaultDept.rating,
+              responses: match.responses || defaultDept.responses + 1,
+              comments: match.comments && match.comments.length > 0 
+                ? [...match.comments, ...defaultDept.comments].slice(0, 3)
+                : [match.comment || "Great service!", ...defaultDept.comments].filter(Boolean).slice(0, 3)
+            };
+          }
+          return defaultDept;
+        });
+        setRatings(merged);
+      })
+      .catch(() => null);
+  }, []);
+
   return (
     <Shell type="official">
       <PageHeader title="Performance Ratings" subtitle="Department-wise service satisfaction" />
-      <div className="rating-grid">{defaultRatings.map((dept) => <RatingCard key={dept.department} dept={dept} />)}</div>
+      <div className="rating-grid">{ratings.map((dept) => <RatingCard key={dept.department} dept={dept} />)}</div>
     </Shell>
   );
 }

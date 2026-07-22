@@ -601,7 +601,6 @@ async def submit_feedback(
 
 @app.get("/api/feedback/ratings")
 async def get_public_ratings():
-    """Public ratings display."""
     result = await feedback_agent.get_department_ratings()
     return JSONResponse(result)
 
