@@ -1202,24 +1202,36 @@ function CitizenRatings({ showToast }) {
 }
 
 function OfficialRatings() {
-  const [ratings, setRatings] = useState(defaultRatings);
+  const [ratings, setRatings] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.get("/api/feedback/ratings")
       .then(({ data }) => {
+        const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
         const deptRatings = data?.department_ratings || {};
-        const rawReviews = data?.ratings || (Array.isArray(data) ? data : []);
 
-        const merged = defaultRatings.map((defaultDept) => {
-          const deptKey = defaultDept.department;
-          const cleanKey = defaultDept.department.replace(" Department", "");
+        // If no reviews exist at all, keep the list empty
+        if (realReviews.length === 0 && Object.keys(deptRatings).length === 0) {
+          setRatings([]);
+          return;
+        }
+
+        // Standard core departments to render dynamically
+        const baseDepartments = [
+          { department: "Water Department", icon: "water" },
+          { department: "Roads Department", icon: "roads" },
+          { department: "Electricity Department", icon: "electric" }
+        ];
+
+        const dynamicList = baseDepartments.map((base) => {
+          const cleanKey = base.department.replace(" Department", "");
 
           // 1. Process aggregated ratings if present
-          if (deptRatings[deptKey] || deptRatings[cleanKey]) {
-            const info = deptRatings[deptKey] || deptRatings[cleanKey];
+          if (deptRatings[base.department] || deptRatings[cleanKey]) {
+            const info = deptRatings[base.department] || deptRatings[cleanKey];
             return {
-              ...defaultDept,
+              ...base,
               rating: info.average_rating || 0,
               responses: info.total_responses || 0,
               comments: info.recent_comments || []
@@ -1227,27 +1239,31 @@ function OfficialRatings() {
           }
 
           // 2. Process raw feedback documents
-          const matches = rawReviews.filter(r => 
+          const matches = realReviews.filter((r) =>
             (r.department || "").toLowerCase().includes(cleanKey.toLowerCase())
           );
 
           if (matches.length > 0) {
             const sum = matches.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
-            const comments = matches.map(m => m.comment).filter(Boolean);
+            const comments = matches.map((m) => m.comment || m.comments).flat().filter(Boolean);
             return {
-              ...defaultDept,
+              ...base,
               rating: (sum / matches.length).toFixed(1),
               responses: matches.length,
               comments: comments.length > 0 ? comments.slice(-3) : []
             };
           }
 
-          return defaultDept;
+          // If no ratings match for this specific department, set to zero
+          return { ...base, rating: 0, responses: 0, comments: [] };
         });
 
-        setRatings(merged);
+        setRatings(dynamicList);
       })
-      .catch((err) => console.error("❌ Official Ratings Load Error:", err))
+      .catch((err) => {
+        console.error("❌ Official Ratings Load Error:", err);
+        setRatings([]);
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -1256,10 +1272,17 @@ function OfficialRatings() {
       <PageHeader title="Performance Ratings" subtitle="Department-wise service satisfaction" />
       {loading ? (
         <LoadingBlock />
-      ) : (
+      ) : ratings.length > 0 ? (
         <div className="rating-grid">
-          {ratings.map((dept) => <RatingCard key={dept.department} dept={dept} />)}
+          {ratings.map((dept) => (
+            <RatingCard key={dept.department} dept={dept} />
+          ))}
         </div>
+      ) : (
+        <EmptyState 
+          title="No Ratings Available" 
+          subtext="No citizen feedback has been recorded in the system yet." 
+        />
       )}
     </Shell>
   );
