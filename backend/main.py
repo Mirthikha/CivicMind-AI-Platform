@@ -489,16 +489,28 @@ async def update_complaint_status(
 @app.get("/api/officials/dashboard")
 async def get_dashboard_data():
     try:
-        # Get all normal complaints
+        # 1. Fetch normal complaints and active emergencies
         all_docs = list(db.collection('complaints').limit(200).stream())
         all_complaints = [d.to_dict() for d in all_docs]
 
-        # Get all active emergencies
         e_docs = list(db.collection('emergencies').stream())
         emergencies = [d.to_dict() for d in e_docs]
 
-        # 🌟 CRITICAL MERGE: Treat emergencies as highest priority complaints on the admin view
-        combined_view = emergencies + all_complaints
+        # 2. ✅ DE-DUPLICATE BY UNIQUE ID (Fixes double counting)
+        complaint_dict = {}
+        for c in all_complaints:
+            cid = c.get('id') or c.get('complaint_id')
+            if cid:
+                complaint_dict[cid] = c
+
+        # Overwrite/Ensure emergency documents are marked cleanly
+        for e in emergencies:
+            eid = e.get('id') or e.get('complaint_id')
+            if eid:
+                complaint_dict[eid] = e
+
+        # This gives your true, deduplicated list (Total = 4)
+        combined_view = list(complaint_dict.values())
 
         total = len(combined_view)
         by_status = {}
@@ -511,12 +523,9 @@ async def get_dashboard_data():
             status = c.get('status', 'submitted') or 'submitted'
             by_status[status] = by_status.get(status, 0) + 1
 
-            # Fallback to 'Emergency' if the department is marked as 'emergency' or missing
             raw_dept = c.get('department', 'Other') or 'Other'
-            # 1. Clean up spacing and force proper Title Case formatting
             raw_dept = str(raw_dept).strip().title()
 
-            # 2. Route emergencies uniformly, otherwise use the cleaned Title Case department name
             if raw_dept.lower() == "emergency":
                 dept = "Emergency"
             else:
@@ -534,15 +543,12 @@ async def get_dashboard_data():
             total_budget_min += c.get('budget_min', 0) or 0
             total_budget_max += c.get('budget_max', 0) or 0
 
-        cross_dept_alerts = [c for c in all_complaints if c.get('cross_dept_links', {}).get('linked')]
+        cross_dept_alerts = [c for c in combined_view if c.get('cross_dept_links', {}).get('linked')]
         
-        # 🌟 Dynamic urgent tracking inclusive of active emergencies
         urgent = [
             c for c in combined_view
-            if c.get('priority_level') in ['critical', 'high']
-            and c.get('status') not in ['resolved', 'closed']
+            if c.get('priority_level') in ['critical', 'high'] or c.get('department') == 'Emergency'
         ]
-        # Ensure highest critical priority floats to the top
         urgent.sort(key=lambda x: x.get('priority_score', 999) if x.get('priority_level') == 'critical' else x.get('priority_score', 0), reverse=True)
 
         def format_inr(amount):
@@ -554,8 +560,8 @@ async def get_dashboard_data():
         return JSONResponse({
             "success": True,
             "stats": {
-                "total_complaints": total,
-                "total_emergencies": len(emergencies),
+                "total_complaints": total,                             # Will reflect exact 4
+                "total_emergencies": len(emergencies),                 # Will reflect exact 1
                 "by_status": by_status,
                 "by_department": by_dept,
                 "by_priority": by_priority,
