@@ -601,9 +601,24 @@ async def submit_feedback(
 
 @app.get("/api/feedback/ratings")
 async def get_public_ratings():
-    result = await feedback_agent.get_department_ratings()
-    return JSONResponse(result)
+    """Unified ratings endpoint returning both calculated stats and raw feedback."""
+    try:
+        # Get calculated averages per department from FeedbackAgent
+        agent_result = await feedback_agent.get_department_ratings()
+        
+        # Stream raw feedback docs for fallback parsing
+        feedback_docs = list(db.collection('feedback').stream())
+        raw_ratings = [d.to_dict() for d in feedback_docs]
 
+        return JSONResponse({
+            "success": True,
+            "department_ratings": agent_result.get("department_ratings", {}),
+            "ratings": raw_ratings,
+            "total_feedback": agent_result.get("total_feedback", len(raw_ratings))
+        })
+    except Exception as e:
+        print(f"[Backend Ratings Exception]: {e}")
+        return JSONResponse({"success": False, "error": str(e)}, status_code=500)
 
 # ═══════════════════════════════════════════════════════
 # QUERY ENDPOINT (Citizen Q&A)

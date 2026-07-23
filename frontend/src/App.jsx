@@ -1095,6 +1095,112 @@ function CrossDeptAlerts() {
   );
 }
 
+// Clean starting categories (0 hardcoded ratings)
+const defaultRatings = [
+  { department: "Water Department", icon: "water", rating: 0, responses: 0, comments: [] },
+  { department: "Roads Department", icon: "roads", rating: 0, responses: 0, comments: [] },
+  { department: "Electricity Department", icon: "electric", rating: 0, responses: 0, comments: [] }
+];
+
+function CitizenRatings({ showToast }) {
+  const citizen = getStorage("civicmind_citizen");
+  const [ratings, setRatings] = useState(defaultRatings);
+  const [form, setForm] = useState({ complaint_id: "", rating: 0, comment: "" });
+  const [loading, setLoading] = useState(false);
+
+  const fetchRatings = () => {
+    api.get("/api/feedback/ratings")
+      .then(({ data }) => {
+        // Look for department_ratings from FeedbackAgent, or raw array fallbacks
+        const deptRatings = data?.department_ratings || {};
+        const rawReviews = data?.ratings || (Array.isArray(data) ? data : []);
+
+        const merged = defaultRatings.map((defaultDept) => {
+          const deptKey = defaultDept.department; // e.g. "Water Department"
+          const cleanKey = defaultDept.department.replace(" Department", "");
+
+          // 1. Check if department_ratings calculated payload exists
+          if (deptRatings[deptKey] || deptRatings[cleanKey]) {
+            const info = deptRatings[deptKey] || deptRatings[cleanKey];
+            return {
+              ...defaultDept,
+              rating: info.average_rating || 0,
+              responses: info.total_responses || 0,
+              comments: info.recent_comments || []
+            };
+          }
+
+          // 2. Fallback: Aggregate raw reviews manually if needed
+          const matches = rawReviews.filter(r => 
+            (r.department || "").toLowerCase().includes(cleanKey.toLowerCase())
+          );
+
+          if (matches.length > 0) {
+            const sum = matches.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
+            const comments = matches.map(m => m.comment).filter(Boolean);
+            return {
+              ...defaultDept,
+              rating: (sum / matches.length).toFixed(1),
+              responses: matches.length,
+              comments: comments.length > 0 ? comments.slice(-3) : []
+            };
+          }
+
+          return defaultDept;
+        });
+
+        setRatings(merged);
+      })
+      .catch((err) => console.error("❌ Ratings Fetch Failed:", err));
+  };
+
+  useEffect(() => {
+    fetchRatings();
+  }, []);
+
+  const submit = async () => {
+    if (!form.complaint_id || !form.rating) {
+      showToast("Add a complaint ID and star rating first", "error");
+      return;
+    }
+    setLoading(true);
+    const formData = new FormData();
+    formData.append("complaint_id", form.complaint_id);
+    formData.append("rating", form.rating);
+    formData.append("comment", form.comment);
+    formData.append("citizen_name", citizen?.name || "Anonymous Citizen");
+
+    try {
+      await api.post("/api/feedback/submit", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      showToast("Thanks for sharing your experience");
+      setForm({ complaint_id: "", rating: 0, comment: "" });
+      fetchRatings(); // Refresh live view dynamically!
+    } catch {
+      showToast("Couldn't submit feedback right now", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Shell>
+      <PageHeader title="Service Ratings" subtitle="See how our city departments are performing" />
+      <div className="rating-grid">
+        {ratings.map((dept) => <RatingCard key={dept.department} dept={dept} />)}
+      </div>
+      <section className="card feedback-box">
+        <h2>Had a complaint resolved? Share your experience!</h2>
+        <Field icon={<FileText />} placeholder="Complaint ID" value={form.complaint_id} onChange={(complaint_id) => setForm({ ...form, complaint_id })} />
+        <StarPicker value={form.rating} onChange={(rating) => setForm({ ...form, rating })} />
+        <textarea placeholder="Tell us what worked well or what can improve..." value={form.comment} onChange={(event) => setForm({ ...form, comment: event.target.value })} />
+        <button className="button button-primary" onClick={submit} disabled={loading}>{loading ? <Spinner tiny /> : "Submit"}</button>
+      </section>
+    </Shell>
+  );
+}
+
 function OfficialRatings() {
   const [ratings, setRatings] = useState(defaultRatings);
   const [loading, setLoading] = useState(true);
@@ -1102,48 +1208,46 @@ function OfficialRatings() {
   useEffect(() => {
     api.get("/api/feedback/ratings")
       .then(({ data }) => {
-        const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
-        if (!realReviews || realReviews.length === 0) return;
+        const deptRatings = data?.department_ratings || {};
+        const rawReviews = data?.ratings || (Array.isArray(data) ? data : []);
 
-        // Group ratings by department
-        const aggregated = {};
-        realReviews.forEach((review) => {
-          const rawDept = (review.department || "Other").replace(" Department", "").trim();
-          const cleanDept = rawDept.charAt(0).toUpperCase() + rawDept.slice(1).toLowerCase();
-          
-          if (!aggregated[cleanDept]) {
-            aggregated[cleanDept] = { total: 0, count: 0, comments: [] };
-          }
-          
-          const ratingVal = parseFloat(review.rating) || 0;
-          if (ratingVal > 0) {
-            aggregated[cleanDept].total += ratingVal;
-            aggregated[cleanDept].count += 1;
-          }
-          if (review.comment) {
-            aggregated[cleanDept].comments.push(review.comment);
-          }
-        });
-
-        // Merge live ratings over default categories
         const merged = defaultRatings.map((defaultDept) => {
-          const key = defaultDept.department.replace(" Department", "").trim();
-          const stats = aggregated[key];
+          const deptKey = defaultDept.department;
+          const cleanKey = defaultDept.department.replace(" Department", "");
 
-          if (stats && stats.count > 0) {
+          // 1. Process aggregated ratings if present
+          if (deptRatings[deptKey] || deptRatings[cleanKey]) {
+            const info = deptRatings[deptKey] || deptRatings[cleanKey];
             return {
               ...defaultDept,
-              rating: (stats.total / stats.count).toFixed(1),
-              responses: stats.count,
-              comments: stats.comments.length > 0 ? stats.comments.slice(-2) : ["Great service!"]
+              rating: info.average_rating || 0,
+              responses: info.total_responses || 0,
+              comments: info.recent_comments || []
             };
           }
+
+          // 2. Process raw feedback documents
+          const matches = rawReviews.filter(r => 
+            (r.department || "").toLowerCase().includes(cleanKey.toLowerCase())
+          );
+
+          if (matches.length > 0) {
+            const sum = matches.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
+            const comments = matches.map(m => m.comment).filter(Boolean);
+            return {
+              ...defaultDept,
+              rating: (sum / matches.length).toFixed(1),
+              responses: matches.length,
+              comments: comments.length > 0 ? comments.slice(-3) : []
+            };
+          }
+
           return defaultDept;
         });
 
         setRatings(merged);
       })
-      .catch((err) => console.error("Error loading ratings:", err))
+      .catch((err) => console.error("❌ Official Ratings Load Error:", err))
       .finally(() => setLoading(false));
   }, []);
 
@@ -1154,9 +1258,7 @@ function OfficialRatings() {
         <LoadingBlock />
       ) : (
         <div className="rating-grid">
-          {ratings.map((dept) => (
-            <RatingCard key={dept.department} dept={dept} />
-          ))}
+          {ratings.map((dept) => <RatingCard key={dept.department} dept={dept} />)}
         </div>
       )}
     </Shell>
