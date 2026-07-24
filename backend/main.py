@@ -182,13 +182,13 @@ async def submit_complaint(
         # Generate unique complaint ID
         complaint_id = "CM" + str(uuid.uuid4())[:6].upper()
 
-        # ── AGENT 1: Classify (Wrapped in Self-Correction) ──
+        # ── AGENT 1: Classification ──
         classification = await self_correction_agent.execute_with_correction(
-            agent_name="ClassificationAgent",
-            agent_func=classification_agent.classify,
-            required_keys=["type"],
-            complaint_text=complaint_text,
-            image_bytes=image_bytes
+            "ClassificationAgent",
+            classification_agent.classify,
+            complaint_text,
+            image_bytes,
+            required_keys=["type"]
         )
 
         if classification.get("_fallback_used"):
@@ -230,27 +230,26 @@ async def submit_complaint(
 
         # ── NORMAL PATH ──
 
-        # AGENT 2: Intake (Wrapped in Self-Correction)
+        # ── AGENT 2: Intake ──
         intake = await self_correction_agent.execute_with_correction(
-            agent_name="IntakeAgent",
-            agent_func=intake_agent.process,
-            required_keys=["department", "specific_problem", "severity_score"],
-            complaint_text=complaint_text,
-            location=location,
-            image_bytes=image_bytes
+            "IntakeAgent",
+            intake_agent.process,
+            complaint_text,
+            location,
+            image_bytes,
+            required_keys=["department", "specific_problem", "severity_score"]
         )
 
         if intake.get("_fallback_used"):
             intake = await intake_agent.process(complaint_text, location, image_bytes)
 
-        # AGENT 3: Intelligence (Wrapped in Self-Correction)
+        # ── AGENT 3: Intelligence ──
         intelligence = await self_correction_agent.execute_with_correction(
-            agent_name="IntelligenceAgent",
-            agent_func=intelligence_agent.analyze,
-            required_keys=["root_cause"],
-            intake_data=intake
+            "IntelligenceAgent",
+            intelligence_agent.analyze,
+            intake,
+            required_keys=["root_cause"]
         )
-
         if intelligence.get("_fallback_used"):
             intelligence = await intelligence_agent.analyze(intake)
 
@@ -272,26 +271,27 @@ async def submit_complaint(
                 "status": "merged"
             })
 
-        # AGENT 5: Prioritization + Budget (Wrapped in Self-Correction)
+        # ── AGENT 5: Prioritization ──
         priority_result = await self_correction_agent.execute_with_correction(
-            agent_name="PrioritizationAgent",
-            agent_func=prioritization_agent.prioritize,
-            required_keys=["priority_score", "priority_level", "budget"],
-            intake_data=intake,
-            intelligence_data=intelligence
+            "PrioritizationAgent",
+            prioritization_agent.prioritize,
+            intake,
+            intelligence,
+            required_keys=["priority_score", "priority_level", "budget"]
         )
 
         if priority_result.get("_fallback_used"):
             priority_result = await prioritization_agent.prioritize(intake, intelligence)
 
-        # AGENT 4: Explainability (Wrapped in Self-Correction)
+        # ── AGENT 4: Explainability ──
+        p_score = priority_result.get("priority_score", 50) if isinstance(priority_result, dict) else 50
         explanation = await self_correction_agent.execute_with_correction(
-            agent_name="ExplainabilityAgent",
-            agent_func=explainability_agent.explain,
-            required_keys=["explanation"],
-            intake_data=intake,
-            intelligence_data=intelligence,
-            priority_score=priority_result.get("priority_score", 50)
+            "ExplainabilityAgent",
+            explainability_agent.explain,
+            intake,
+            intelligence,
+            p_score,
+            required_keys=["explanation"]
         )
 
         if explanation.get("_fallback_used"):
