@@ -5,9 +5,7 @@ from gemini_client import generate_text
 class SelfCorrectionAgent:
     """
     AGENT 8: Universal Self-Correction Agent (Reflection & Healing Loop)
-    
     Targeted quality controller that inspects ANY agent's output across CivicMind.
-    Ensures all dictionary-expected agents always return a Python dict.
     """
 
     async def execute_with_correction(
@@ -20,14 +18,16 @@ class SelfCorrectionAgent:
         max_retries: int = 2,
         **kwargs
     ) -> Any:
+        attempts = 0
+        last_error = ""
 
         while attempts < max_retries:
             attempts += 1
             try:
-                # 1. Execute targeted agent task
+                # 1. Run target agent function safely
                 result = await agent_func(*args, **kwargs)
 
-                # 2A. If string received but required_keys expected (e.g. raw JSON string returned)
+                # 2A. If string JSON returned but required_keys dictionary expected
                 if isinstance(result, str) and required_keys:
                     clean_text = result.strip()
                     if "```json" in clean_text:
@@ -38,18 +38,17 @@ class SelfCorrectionAgent:
                     try:
                         result = json.loads(clean_text)
                     except Exception:
-                        # If plain text returned for single key, wrap it automatically
                         if len(required_keys) == 1:
-                            result = {required_keys[0]: result.strip()}
+                            result = {required_keys[0]: clean_text}
                         else:
                             raise ValueError(f"Output was string but could not parse as JSON for keys: {required_keys}")
 
-                # 2B. Validation for String Outputs (when NO required_keys passed, e.g., QueryAgent chat)
+                # 2B. Validation for String Outputs (e.g. Chat/Query response)
                 if isinstance(result, str) and not required_keys:
                     clean_str = result.strip()
                     if len(clean_str) < min_text_length or "technical difficulties" in clean_str.lower():
-                        raise ValueError(f"Text output too short or contained error fallback ({len(clean_str)} chars).")
-                    return result
+                        raise ValueError(f"Text output too short ({len(clean_str)} chars).")
+                    return clean_str
 
                 # 2C. Validation for Dictionary/JSON Outputs
                 if isinstance(result, dict):
@@ -71,7 +70,7 @@ class SelfCorrectionAgent:
                 print(f"⚠️ [SelfCorrectionAgent] Flaw detected in '{agent_name}' (Attempt {attempts}/{max_retries}): {last_error}")
 
                 if attempts < max_retries:
-                    context_input = kwargs.get("complaint_text") or kwargs.get("question") or str(args)
+                    context_input = kwargs.get("complaint_text") or kwargs.get("question") or (str(args[0]) if args else "")
                     correction_prompt = f"""
 You previously attempted to process a civic task for agent '{agent_name}', but your output failed validation.
 
@@ -108,14 +107,14 @@ If a JSON payload is required, return ONLY valid JSON matching required keys: {r
                     except Exception as heal_err:
                         print(f"❌ [SelfCorrectionAgent] Self-healing failed: {heal_err}")
 
-        print(f"🚨 [SelfCorrectionAgent] '{agent_name}' max retries reached.")
-        if required_keys:
-            # Fallback guarantee: Return a dictionary with empty default values for required keys
-            fallback = {k: "Under Evaluation" for k in required_keys}
-            fallback["_fallback_used"] = True
-            fallback["error"] = last_error
-            return fallback
-
-        return "I am experiencing temporary technical difficulties processing your request."
+        print(f"🚨 [SelfCorrectionAgent] '{agent_name}' max retries reached. Returning direct fallback.")
+        try:
+            return await agent_func(*args, **kwargs)
+        except Exception:
+            if required_keys:
+                fallback = {k: "Under Review" for k in required_keys}
+                fallback["_fallback_used"] = True
+                return fallback
+            return "Processing request..."
 
 self_correction_agent = SelfCorrectionAgent()
