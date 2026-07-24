@@ -499,44 +499,70 @@ function FileComplaint({ showToast }) {
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState("");
   const [loading, setLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState(0);
+  const [telemetry, setTelemetry] = useState([]); // 👈 Stores real-time backend agent events
   const [result, setResult] = useState(null);
-  const messages = ["Classifying issue type...", "Finding related complaints...", "Generating root cause analysis...", "Estimating budget...", "Creating official explanation..."];
-
-  useEffect(() => {
-    if (!loading) return;
-    const timer = setInterval(() => setLoadingMessage((value) => (value + 1) % messages.length), 1800);
-    return () => clearInterval(timer);
-  }, [loading]);
 
   const pickImage = (file) => {
     setImage(file);
     setPreview(file ? URL.createObjectURL(file) : "");
   };
 
- const submit = async (event) => {
-  event.preventDefault();
-  setLoading(true);
-  const body = new FormData();
-  body.append("complaint_text", form.description);
-  body.append("location", form.location);
-  body.append("citizen_name", form.name);
-  body.append("citizen_contact", form.phone);
-  if (image) body.append("image", image);
-  
-  try {
-    const { data } = await api.post("/api/complaints/submit", body, { 
-      headers: { "Content-Type": "multipart/form-data" } 
-    });
-    setResult(normalizeSubmission(data));
-    showToast("Complaint submitted successfully");
-  } catch (err) {
-    console.error("❌ Live Backend Crash Details:", err);
-    showToast(err.response?.data?.error || "Backend processing failed or timed out", "error");
-  } finally {
-    setLoading(false);
-  }
-};
+  const submit = async (event) => {
+    event.preventDefault();
+    setLoading(true);
+    setTelemetry([]); // Clear prior telemetry
+
+    const body = new FormData();
+    body.append("complaint_text", form.description);
+    body.append("location", form.location);
+    body.append("citizen_name", form.name);
+    body.append("citizen_contact", form.phone);
+    if (image) body.append("image", image);
+
+    try {
+      // Connect to the real-time event stream endpoint in main.py
+      const response = await fetch(`${API_BASE}/api/complaints/submit-stream`, {
+        method: "POST",
+        body: body
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop(); 
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const rawJson = line.replace("data: ", "").trim();
+            if (!rawJson) continue;
+
+            const eventData = JSON.parse(rawJson);
+
+            // Append live agent execution output to state
+            setTelemetry((prev) => [...prev, eventData]);
+
+            // Set final result when complete event received
+            if (eventData.stage === "complete") {
+              setResult(normalizeSubmission(eventData.data || eventData));
+              showToast("Complaint processed and submitted successfully!");
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("❌ Live Stream Connection Error:", err);
+      showToast("Live workflow processing failed. Please check backend server.", "error");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (result) {
     return (
@@ -560,9 +586,13 @@ function FileComplaint({ showToast }) {
             <p><strong>Budget Estimate:</strong> {result.budget_range}</p>
             <p><strong>Response Target:</strong> {result.response_time}</p>
           </article>
-          <div className="action-row">
+
+          {/* Render real agent telemetry logs after processing */}
+          <RealTimeAgentInspector telemetry={telemetry} />
+
+          <div className="action-row" style={{ marginTop: "20px" }}>
             <button className="button button-primary" onClick={() => navigate(`/citizen/track?id=${result.id}`)}>Track This Complaint</button>
-            <button className="button button-soft" onClick={() => setResult(null)}>File Another</button>
+            <button className="button button-soft" onClick={() => { setResult(null); setTelemetry([]); }}>File Another</button>
           </div>
         </section>
       </Shell>
@@ -571,7 +601,7 @@ function FileComplaint({ showToast }) {
 
   return (
     <Shell>
-      <PageHeader title="Report a Civic Issue" subtitle="Our AI will analyze and prioritize your complaint" />
+      <PageHeader title="Report a Civic Issue" subtitle="Our multi-agent system will process, inspect, and route your issue live" />
       <form className="card form complaint-form" onSubmit={submit}>
         <Field icon={<User />} placeholder="Full Name" value={form.name} onChange={(name) => setForm({ ...form, name })} />
         <Field icon={<Phone />} placeholder="Contact Number" value={form.phone} onChange={(phone) => setForm({ ...form, phone })} />
@@ -583,16 +613,11 @@ function FileComplaint({ showToast }) {
           <input type="file" accept="image/*" onChange={(event) => pickImage(event.target.files?.[0])} />
           {preview ? <img src={preview} alt="Complaint preview" /> : <><Upload size={28} /> Click to upload or drag photo here</>}
         </label>
-        <button className="button button-primary full" disabled={loading}>{loading ? "AI is analyzing..." : "Submit Complaint"}</button>
-        {loading && (
-          <div className="ai-loading">
-            <Spinner />
-            <strong>AI is analyzing your complaint...</strong>
-            <span>This takes about 10-15 seconds</span>
-            <p>{messages[loadingMessage]}</p>
-          </div>
-        )}
+        <button className="button button-primary full" disabled={loading}>{loading ? "Agents processing live..." : "Submit Complaint"}</button>
       </form>
+
+      {/* Render live agent terminal on-screen while loading */}
+      {loading && <RealTimeAgentInspector telemetry={telemetry} />}
     </Shell>
   );
 }
