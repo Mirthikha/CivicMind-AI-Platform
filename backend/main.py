@@ -183,13 +183,14 @@ async def submit_complaint(
         complaint_id = "CM" + str(uuid.uuid4())[:6].upper()
 
         # ── AGENT 1: Classification ──
+        yield f"data: {json.dumps({'stage': 'classification', 'status': 'running', 'message': 'Agent 1: Scanning issue type & safety risks...'})}\n\n"
         classification = await self_correction_agent.execute_with_correction(
-            "ClassificationAgent",
-            classification_agent.classify,
-            complaint_text,
-            image_bytes,
-            required_keys=["type"]
-        )
+                "ClassificationAgent",
+                classification_agent.classify,
+                complaint_text,
+                image_bytes,
+                required_keys=["type"]
+            )
 
         if classification.get("_fallback_used"):
             classification = await classification_agent.classify(complaint_text, image_bytes)
@@ -231,27 +232,38 @@ async def submit_complaint(
         # ── NORMAL PATH ──
 
         # ── AGENT 2: Intake ──
+        yield f"data: {json.dumps({'stage': 'intake', 'status': 'running', 'message': 'Agent 2: Parsing severity, issue type & location...'})}\n\n"
         intake = await self_correction_agent.execute_with_correction(
-            "IntakeAgent",
-            intake_agent.process,
-            complaint_text,
-            location,
-            image_bytes,
-            required_keys=["department", "specific_problem", "severity_score"]
-        )
+                "IntakeAgent",
+                intake_agent.process,
+                complaint_text,
+                location,
+                image_bytes,
+                required_keys=["department", "specific_problem", "severity_score"]
+            )
 
         if intake.get("_fallback_used"):
             intake = await intake_agent.process(complaint_text, location, image_bytes)
 
         # ── AGENT 3: Intelligence ──
+        yield f"data: {json.dumps({'stage': 'intelligence', 'status': 'running', 'message': 'Agent 3: Analyzing root cause & historical links...'})}\n\n"
         intelligence = await self_correction_agent.execute_with_correction(
-            "IntelligenceAgent",
-            intelligence_agent.analyze,
-            intake,
-            required_keys=["root_cause"]
-        )
+                "IntelligenceAgent",
+                intelligence_agent.analyze,
+                intake,
+                required_keys=["root_cause"]
+            )
+
         if intelligence.get("_fallback_used"):
             intelligence = await intelligence_agent.analyze(intake)
+
+        root_cause_data = intelligence.get("root_cause", {})
+        if isinstance(root_cause_data, str):
+            root_cause_dict = {
+                "root_cause": root_cause_data,
+                "prediction": "Sub-surface road structural degradation if left unpatched."
+            }
+            intelligence["root_cause"] = root_cause_dict
 
         # Handle duplicate
         if intelligence.get("is_duplicate"):
@@ -271,28 +283,30 @@ async def submit_complaint(
                 "status": "merged"
             })
 
-        # ── AGENT 5: Prioritization ──
+        # ── AGENT 5: Prioritization & Budget ──
+        yield f"data: {json.dumps({'stage': 'prioritization', 'status': 'running', 'message': 'Agent 5: Computing priority score & budget bounds...'})}\n\n"
         priority_result = await self_correction_agent.execute_with_correction(
-            "PrioritizationAgent",
-            prioritization_agent.prioritize,
-            intake,
-            intelligence,
-            required_keys=["priority_score", "priority_level", "budget"]
-        )
+                "PrioritizationAgent",
+                prioritization_agent.prioritize,
+                intake,
+                intelligence,
+                required_keys=["priority_score", "priority_level", "budget"]
+            )
 
         if priority_result.get("_fallback_used"):
             priority_result = await prioritization_agent.prioritize(intake, intelligence)
 
         # ── AGENT 4: Explainability ──
         p_score = priority_result.get("priority_score", 50) if isinstance(priority_result, dict) else 50
+        yield f"data: {json.dumps({'stage': 'explainability', 'status': 'running', 'message': 'Agent 4: Formatting decision explanation...'})}\n\n"
         explanation = await self_correction_agent.execute_with_correction(
-            "ExplainabilityAgent",
-            explainability_agent.explain,
-            intake,
-            intelligence,
-            p_score,
-            required_keys=["explanation"]
-        )
+                "ExplainabilityAgent",
+                explainability_agent.explain,
+                intake,
+                intelligence,
+                p_score,
+                required_keys=["explanation", "recommended_action"]
+            )
 
         if explanation.get("_fallback_used"):
             explanation = await explainability_agent.explain(

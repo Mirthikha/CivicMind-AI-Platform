@@ -499,7 +499,7 @@ function FileComplaint({ showToast }) {
   const [image, setImage] = useState(null);
   const [preview, setPreview] = useState("");
   const [loading, setLoading] = useState(false);
-  const [telemetry, setTelemetry] = useState([]); // 👈 Stores real-time backend agent events
+  const [telemetry, setTelemetry] = useState([]);
   const [result, setResult] = useState(null);
 
   const pickImage = (file) => {
@@ -510,7 +510,7 @@ function FileComplaint({ showToast }) {
   const submit = async (event) => {
     event.preventDefault();
     setLoading(true);
-    setTelemetry([]); // Clear prior telemetry
+    setTelemetry([]);
 
     const body = new FormData();
     body.append("complaint_text", form.description);
@@ -520,7 +520,6 @@ function FileComplaint({ showToast }) {
     if (image) body.append("image", image);
 
     try {
-      // Connect to the real-time event stream endpoint in main.py
       const response = await fetch(`${API_BASE}/api/complaints/submit-stream`, {
         method: "POST",
         body: body
@@ -536,7 +535,7 @@ function FileComplaint({ showToast }) {
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n\n");
-        buffer = lines.pop(); 
+        buffer = lines.pop();
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
@@ -544,21 +543,18 @@ function FileComplaint({ showToast }) {
             if (!rawJson) continue;
 
             const eventData = JSON.parse(rawJson);
-
-            // Append live agent execution output to state
             setTelemetry((prev) => [...prev, eventData]);
 
-            // Set final result when complete event received
             if (eventData.stage === "complete") {
               setResult(normalizeSubmission(eventData.data || eventData));
-              showToast("Complaint processed and submitted successfully!");
+              showToast("Complaint processed successfully!");
             }
           }
         }
       }
     } catch (err) {
       console.error("❌ Live Stream Connection Error:", err);
-      showToast("Live workflow processing failed. Please check backend server.", "error");
+      showToast("Live workflow failed. Check server logs.", "error");
     } finally {
       setLoading(false);
     }
@@ -573,8 +569,7 @@ function FileComplaint({ showToast }) {
           <div className="id-copy-card">
             <span>Your Complaint ID</span>
             <strong>{result.id}</strong>
-            <button className="icon-btn" onClick={() => navigator.clipboard?.writeText(result.id)} title="Copy complaint ID"><Copy size={18} /></button>
-            <small>Save this ID to track your complaint</small>
+            <button className="icon-btn" onClick={() => navigator.clipboard?.writeText(result.id)} title="Copy ID"><Copy size={18} /></button>
           </div>
           <article className="analysis-card">
             <h2><Bot /> AI Analysis</h2>
@@ -587,11 +582,10 @@ function FileComplaint({ showToast }) {
             <p><strong>Response Target:</strong> {result.response_time}</p>
           </article>
 
-          {/* Render real agent telemetry logs after processing */}
           <RealTimeAgentInspector telemetry={telemetry} />
 
           <div className="action-row" style={{ marginTop: "20px" }}>
-            <button className="button button-primary" onClick={() => navigate(`/citizen/track?id=${result.id}`)}>Track This Complaint</button>
+            <button className="button button-primary" onClick={() => navigate(`/citizen/track?id=${result.id}`)}>Track Complaint</button>
             <button className="button button-soft" onClick={() => { setResult(null); setTelemetry([]); }}>File Another</button>
           </div>
         </section>
@@ -611,12 +605,11 @@ function FileComplaint({ showToast }) {
         </label>
         <label className="upload-box">
           <input type="file" accept="image/*" onChange={(event) => pickImage(event.target.files?.[0])} />
-          {preview ? <img src={preview} alt="Complaint preview" /> : <><Upload size={28} /> Click to upload or drag photo here</>}
+          {preview ? <img src={preview} alt="Preview" /> : <><Upload size={28} /> Upload photo here</>}
         </label>
         <button className="button button-primary full" disabled={loading}>{loading ? "Agents processing live..." : "Submit Complaint"}</button>
       </form>
 
-      {/* Render live agent terminal on-screen while loading */}
       {loading && <RealTimeAgentInspector telemetry={telemetry} />}
     </Shell>
   );

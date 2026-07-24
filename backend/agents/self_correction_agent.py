@@ -43,15 +43,21 @@ class SelfCorrectionAgent:
                         else:
                             raise ValueError(f"Output was string but could not parse as JSON for keys: {required_keys}")
 
-                # 2B. Validation for String Outputs (e.g. Chat/Query response)
+                # 2B. Validation for String Outputs (when NO required_keys passed, e.g. Chat/QueryAgent)
                 if isinstance(result, str) and not required_keys:
                     clean_str = result.strip()
                     if len(clean_str) < min_text_length or "technical difficulties" in clean_str.lower():
-                        raise ValueError(f"Text output too short ({len(clean_str)} chars).")
+                        raise ValueError(f"Text output too short or contained error fallback ({len(clean_str)} chars).")
                     return clean_str
 
-                # 2C. Validation for Dictionary/JSON Outputs
+                # 2C. Validation for Dictionary Outputs (Reject generic low-quality templates)
                 if isinstance(result, dict):
+                    generic_phrases = ["manual investigation", "manual review required", "unknown without further data", "assigned to other department"]
+                    explanation_val = str(result.get("explanation", "")).lower()
+                    root_val = str(result.get("root_cause", "")).lower()
+                    if any(phrase in explanation_val or phrase in root_val for phrase in generic_phrases):
+                        raise ValueError(f"Agent output contained generic template fallback: {result}")
+
                     if required_keys:
                         missing = [k for k in required_keys if k not in result or result[k] in [None, ""]]
                         if missing:
