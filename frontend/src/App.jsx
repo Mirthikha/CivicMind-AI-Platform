@@ -797,53 +797,70 @@ function AskAI({ showToast }) {
   );
 }
 
+// Clean starting categories (0 hardcoded ratings)
+const defaultRatings = [
+  { department: "Water Department", icon: "water", rating: 0, responses: 0, comments: [] },
+  { department: "Roads Department", icon: "roads", rating: 0, responses: 0, comments: [] },
+  { department: "Electricity Department", icon: "electric", rating: 0, responses: 0, comments: [] }
+];
+
 function CitizenRatings({ showToast }) {
   const citizen = getStorage("civicmind_citizen");
   const [ratings, setRatings] = useState(defaultRatings);
   const [form, setForm] = useState({ complaint_id: "", rating: 0, comment: "" });
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
+  const fetchRatings = () => {
     api.get("/api/feedback/ratings")
       .then(({ data }) => {
-        // 1. Extract the raw array regardless of wrapper structure
-        const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
-        
-        if (realReviews.length === 0) {
-          setRatings(defaultRatings);
-          return;
-        }
+        // Look for department_ratings from FeedbackAgent, or raw array fallbacks
+        const deptRatings = data?.department_ratings || {};
+        const rawReviews = data?.ratings || (Array.isArray(data) ? data : []);
 
-        // 2. Pro-Tier Merge: Combine real reviews with default categories 
-        // so the UI never looks empty, but live data takes priority!
-        const merged = defaultRatings.map(defaultDept => {
-          // Find if there matches a live review for this specific department
-          const match = realReviews.find(
-            r => r.department?.toLowerCase().includes(defaultDept.department.split(" ")[0].toLowerCase())
-          );
-          
-          if (match) {
+        const merged = defaultRatings.map((defaultDept) => {
+          const deptKey = defaultDept.department; // e.g. "Water Department"
+          const cleanKey = defaultDept.department.replace(" Department", "");
+
+          // 1. Check if department_ratings calculated payload exists
+          if (deptRatings[deptKey] || deptRatings[cleanKey]) {
+            const info = deptRatings[deptKey] || deptRatings[cleanKey];
             return {
               ...defaultDept,
-              rating: match.rating ? parseFloat(match.rating).toFixed(1) : defaultDept.rating,
-              responses: match.responses || defaultDept.responses + 1,
-              comments: match.comments && match.comments.length > 0 
-                ? [...match.comments, ...defaultDept.comments].slice(0, 3)
-                : [match.comment || "Great service!", ...defaultDept.comments].filter(Boolean).slice(0, 3)
+              rating: info.average_rating || 0,
+              responses: info.total_responses || 0,
+              comments: info.recent_comments || []
             };
           }
+
+          // 2. Fallback: Aggregate raw reviews manually if needed
+          const matches = rawReviews.filter(r => 
+            (r.department || "").toLowerCase().includes(cleanKey.toLowerCase())
+          );
+
+          if (matches.length > 0) {
+            const sum = matches.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
+            const comments = matches.map(m => m.comment).filter(Boolean);
+            return {
+              ...defaultDept,
+              rating: (sum / matches.length).toFixed(1),
+              responses: matches.length,
+              comments: comments.length > 0 ? comments.slice(-3) : []
+            };
+          }
+
           return defaultDept;
         });
 
         setRatings(merged);
       })
-      .catch((err) => {
-        console.error("❌ Ratings Fetch Failed:", err);
-        setRatings(defaultRatings);
-      });
+      .catch((err) => console.error("❌ Ratings Fetch Failed:", err));
+  };
+
+  useEffect(() => {
+    fetchRatings();
   }, []);
 
- const submit = async () => {
+  const submit = async () => {
     if (!form.complaint_id || !form.rating) {
       showToast("Add a complaint ID and star rating first", "error");
       return;
@@ -861,20 +878,14 @@ function CitizenRatings({ showToast }) {
       });
       showToast("Thanks for sharing your experience");
       setForm({ complaint_id: "", rating: 0, comment: "" });
-      
-      // 🌟 RE-FETCH FRESH RATINGS IMMEDIATELY
-      const { data } = await api.get("/api/feedback/ratings");
-      const realReviews = data?.ratings || (Array.isArray(data) ? data : []);
-      if (realReviews.length > 0) {
-        // Trigger UI update
-        window.location.reload(); 
-      }
+      fetchRatings(); // Refresh live view dynamically!
     } catch {
       showToast("Couldn't submit feedback right now", "error");
     } finally {
       setLoading(false);
     }
   };
+
   return (
     <Shell>
       <PageHeader title="Service Ratings" subtitle="See how our city departments are performing" />
@@ -891,12 +902,6 @@ function CitizenRatings({ showToast }) {
     </Shell>
   );
 }
-
-const defaultRatings = [
-  { department: "Water Department", icon: "water", rating: 0, responses: 0, comments: [] },
-  { department: "Roads Department", icon: "roads", rating: 0, responses: 0, comments: [] },
-  { department: "Electricity Department", icon: "electric", rating: 0, responses: 0, comments: [] }
-];
 
 function OfficialDashboard() {
   const [data, setData] = useState(null);
@@ -1095,111 +1100,38 @@ function CrossDeptAlerts() {
   );
 }
 
-// Clean starting categories (0 hardcoded ratings)
-const defaultRatings = [
-  { department: "Water Department", icon: "water", rating: 0, responses: 0, comments: [] },
-  { department: "Roads Department", icon: "roads", rating: 0, responses: 0, comments: [] },
-  { department: "Electricity Department", icon: "electric", rating: 0, responses: 0, comments: [] }
-];
-
-function CitizenRatings({ showToast }) {
-  const citizen = getStorage("civicmind_citizen");
-  const [ratings, setRatings] = useState(defaultRatings);
-  const [form, setForm] = useState({ complaint_id: "", rating: 0, comment: "" });
-  const [loading, setLoading] = useState(false);
-
-  const fetchRatings = () => {
-    api.get("/api/feedback/ratings")
-      .then(({ data }) => {
-        // Look for department_ratings from FeedbackAgent, or raw array fallbacks
-        const deptRatings = data?.department_ratings || {};
-        const rawReviews = data?.ratings || (Array.isArray(data) ? data : []);
-
-        const merged = defaultRatings.map((defaultDept) => {
-          const deptKey = defaultDept.department; // e.g. "Water Department"
-          const cleanKey = defaultDept.department.replace(" Department", "");
-
-          // 1. Check if department_ratings calculated payload exists
-          if (deptRatings[deptKey] || deptRatings[cleanKey]) {
-            const info = deptRatings[deptKey] || deptRatings[cleanKey];
-            return {
-              ...defaultDept,
-              rating: info.average_rating || 0,
-              responses: info.total_responses || 0,
-              comments: info.recent_comments || []
-            };
-          }
-
-          // 2. Fallback: Aggregate raw reviews manually if needed
-          const matches = rawReviews.filter(r => 
-            (r.department || "").toLowerCase().includes(cleanKey.toLowerCase())
-          );
-
-          if (matches.length > 0) {
-            const sum = matches.reduce((acc, r) => acc + (parseFloat(r.rating) || 0), 0);
-            const comments = matches.map(m => m.comment).filter(Boolean);
-            return {
-              ...defaultDept,
-              rating: (sum / matches.length).toFixed(1),
-              responses: matches.length,
-              comments: comments.length > 0 ? comments.slice(-3) : []
-            };
-          }
-
-          return defaultDept;
-        });
-
-        setRatings(merged);
-      })
-      .catch((err) => console.error("❌ Ratings Fetch Failed:", err));
-  };
-
-  useEffect(() => {
-    fetchRatings();
-  }, []);
-
-  const submit = async () => {
-    if (!form.complaint_id || !form.rating) {
-      showToast("Add a complaint ID and star rating first", "error");
-      return;
-    }
-    setLoading(true);
-    const formData = new FormData();
-    formData.append("complaint_id", form.complaint_id);
-    formData.append("rating", form.rating);
-    formData.append("comment", form.comment);
-    formData.append("citizen_name", citizen?.name || "Anonymous Citizen");
-
-    try {
-      await api.post("/api/feedback/submit", formData, {
-        headers: { "Content-Type": "multipart/form-data" }
-      });
-      showToast("Thanks for sharing your experience");
-      setForm({ complaint_id: "", rating: 0, comment: "" });
-      fetchRatings(); // Refresh live view dynamically!
-    } catch {
-      showToast("Couldn't submit feedback right now", "error");
-    } finally {
-      setLoading(false);
-    }
-  };
+function RealTimeAgentInspector({ telemetry }) {
+  if (!telemetry || telemetry.length === 0) return null;
 
   return (
-    <Shell>
-      <PageHeader title="Service Ratings" subtitle="See how our city departments are performing" />
-      <div className="rating-grid">
-        {ratings.map((dept) => <RatingCard key={dept.department} dept={dept} />)}
+    <div style={{ background: "#090d16", color: "#f8fafc", padding: "20px", borderRadius: "12px", marginTop: "20px", fontFamily: "monospace", border: "1px solid #1e293b" }}>
+      <h3 style={{ color: "#38bdf8", marginTop: 0, borderBottom: "1px solid #334155", paddingBottom: "8px" }}>
+        ⚡ Live Multi-Agent Execution Telemetry
+      </h3>
+      
+      <div style={{ display: "flex", flexDirection: "column", gap: "12px", maxHeight: "350px", overflowY: "auto" }}>
+        {telemetry.map((item, index) => (
+          <div key={index} style={{ background: "#1e293b", padding: "12px", borderRadius: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", color: "#a855f7", fontWeight: "bold" }}>
+              <span>STAGE: {item.stage?.toUpperCase()}</span>
+              <span>{item.status?.toUpperCase()}</span>
+            </div>
+
+            {item.message && <p style={{ margin: "4px 0 0 0", color: "#94a3b8" }}>{item.message}</p>}
+
+            {/* Display full raw agent output data if present */}
+            {item.data && (
+              <pre style={{ background: "#020617", padding: "8px", borderRadius: "6px", color: "#4ade80", fontSize: "11px", overflowX: "auto", margin: "8px 0 0 0" }}>
+                {JSON.stringify(item.data, null, 2)}
+              </pre>
+            )}
+          </div>
+        ))}
       </div>
-      <section className="card feedback-box">
-        <h2>Had a complaint resolved? Share your experience!</h2>
-        <Field icon={<FileText />} placeholder="Complaint ID" value={form.complaint_id} onChange={(complaint_id) => setForm({ ...form, complaint_id })} />
-        <StarPicker value={form.rating} onChange={(rating) => setForm({ ...form, rating })} />
-        <textarea placeholder="Tell us what worked well or what can improve..." value={form.comment} onChange={(event) => setForm({ ...form, comment: event.target.value })} />
-        <button className="button button-primary" onClick={submit} disabled={loading}>{loading ? <Spinner tiny /> : "Submit"}</button>
-      </section>
-    </Shell>
+    </div>
   );
 }
+
 
 function OfficialRatings() {
   const [ratings, setRatings] = useState([]);
@@ -1440,9 +1372,20 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
               <Fragment key={item.id}>
                 <tr style={isEmergency ? { backgroundColor: "rgba(254, 226, 226, 0.4)", borderLeft: "4px solid #dc2626" } : {}}>
                   <td>
-                    <span className="id-badge" style={isEmergency ? { backgroundColor: "#dc2626", color: "#fff" } : {}}>
-                      {isEmergency ? "🚨 " : ""}{item.id}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span className="id-badge" style={isEmergency ? { backgroundColor: "#dc2626", color: "#fff" } : {}}>
+                        {isEmergency ? "🚨 " : ""}{item.id}
+                      </span>
+                      {item.self_corrected && (
+                        <span 
+                          className="badge" 
+                          style={{ backgroundColor: "#dcfce7", color: "#15803d", fontSize: "10px", padding: "2px 6px" }}
+                          title="Validated & Self-Healed by Agent 8 prior to persistence"
+                        >
+                          ⚡ AI Self-Healed
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td style={isEmergency ? { fontWeight: "bold", color: "#991b1b" } : {}}>
                     {item.original_complaint || item.problem || item.specific_problem}
@@ -1477,6 +1420,11 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
                   <tr className="expand-row" style={{ backgroundColor: "#f8fafc" }}>
                     <td colSpan="8" style={{ padding: "16px", textAlign: "left" }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                        {item.self_corrected && (
+                          <p style={{ margin: 0, color: "#15803d", fontWeight: "bold", fontSize: "13px" }}>
+                            🛡️ Guardrail Telemetry: Initial agent output contained schema flaws and was automatically healed by Agent 8.
+                          </p>
+                        )}
                         <p style={{ margin: 0 }}>
                           <strong>🤖 AI Explanation:</strong> {item.explanation || "No explanation paragraph generated."}
                         </p>

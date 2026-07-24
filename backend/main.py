@@ -58,6 +58,7 @@ from agents.tracking_agent import tracking_agent
 from agents.feedback_agent import feedback_agent
 from agents.query_agent import query_agent
 from gemini_client import generate_text
+from agents.self_correction_agent import self_correction_agent
 
 # ─────────────────────────────────────────
 # Create FastAPI App
@@ -181,11 +182,17 @@ async def submit_complaint(
         # Generate unique complaint ID
         complaint_id = "CM" + str(uuid.uuid4())[:6].upper()
 
-        # ── AGENT 1: Classify ──
-        classification = await classification_agent.classify(
+        # ── AGENT 1: Classify (Wrapped in Self-Correction) ──
+        classification = await self_correction_agent.execute_with_correction(
+            agent_name="ClassificationAgent",
+            agent_func=classification_agent.classify,
+            required_keys=["type"],
             complaint_text=complaint_text,
             image_bytes=image_bytes
         )
+
+        if classification.get("_fallback_used"):
+            classification = await classification_agent.classify(complaint_text, image_bytes)
 
         # ── EMERGENCY PATH ──
         if str(classification.get("type", "")).upper() == "EMERGENCY":
@@ -223,13 +230,29 @@ async def submit_complaint(
 
         # ── NORMAL PATH ──
 
-        # AGENT 2: Intake
-        intake = await intake_agent.process(
-            complaint_text, location, image_bytes
+        # AGENT 2: Intake (Wrapped in Self-Correction)
+        intake = await self_correction_agent.execute_with_correction(
+            agent_name="IntakeAgent",
+            agent_func=intake_agent.process,
+            required_keys=["department", "specific_problem", "severity_score"],
+            complaint_text=complaint_text,
+            location=location,
+            image_bytes=image_bytes
         )
 
-        # AGENT 3: Intelligence
-        intelligence = await intelligence_agent.analyze(intake)
+        if intake.get("_fallback_used"):
+            intake = await intake_agent.process(complaint_text, location, image_bytes)
+
+        # AGENT 3: Intelligence (Wrapped in Self-Correction)
+        intelligence = await self_correction_agent.execute_with_correction(
+            agent_name="IntelligenceAgent",
+            agent_func=intelligence_agent.analyze,
+            required_keys=["root_cause"],
+            intake_data=intake
+        )
+
+        if intelligence.get("_fallback_used"):
+            intelligence = await intelligence_agent.analyze(intake)
 
         # Handle duplicate
         if intelligence.get("is_duplicate"):
@@ -249,19 +272,35 @@ async def submit_complaint(
                 "status": "merged"
             })
 
-        # AGENT 5: Prioritization + Budget
-        priority_result = await prioritization_agent.prioritize(
-            intake, intelligence
+        # AGENT 5: Prioritization + Budget (Wrapped in Self-Correction)
+        priority_result = await self_correction_agent.execute_with_correction(
+            agent_name="PrioritizationAgent",
+            agent_func=prioritization_agent.prioritize,
+            required_keys=["priority_score", "priority_level", "budget"],
+            intake_data=intake,
+            intelligence_data=intelligence
         )
 
-        # AGENT 4: Explainability
-        explanation = await explainability_agent.explain(
-            intake,
-            intelligence,
-            priority_result["priority_score"]
+        if priority_result.get("_fallback_used"):
+            priority_result = await prioritization_agent.prioritize(intake, intelligence)
+
+        # AGENT 4: Explainability (Wrapped in Self-Correction)
+        explanation = await self_correction_agent.execute_with_correction(
+            agent_name="ExplainabilityAgent",
+            agent_func=explainability_agent.explain,
+            required_keys=["explanation"],
+            intake_data=intake,
+            intelligence_data=intelligence,
+            priority_score=priority_result.get("priority_score", 50)
         )
 
-        # ── BUILD COMPLETE RECORD ──
+        if explanation.get("_fallback_used"):
+            explanation = await explainability_agent.explain(
+                intake,
+                intelligence,
+                priority_result.get("priority_score", 50)
+            )
+
         # ── BUILD COMPLETE RECORD ──
         budget = priority_result.get("budget", {})
 
@@ -285,11 +324,21 @@ async def submit_complaint(
             if final_budget == "Under Review":
                 final_budget = "₹10,000 - ₹25,000"
 
+        # Check self-correction telemetry
+        any_corrected = (
+            classification.get("_self_corrected", False) or
+            intake.get("_self_corrected", False) or
+            intelligence.get("_self_corrected", False) or
+            priority_result.get("_self_corrected", False) or
+            explanation.get("_self_corrected", False)
+        )
+
         complaint_record = {
             # Identity
             "id": complaint_id,
             "type": "normal",
             "created_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+            "self_corrected": any_corrected,
 
             # Citizen info
             "citizen_name": citizen_name,
@@ -343,13 +392,11 @@ async def submit_complaint(
             "budget_itemized": budget.get("itemized", []),
 
             # Explainability
-
             "explanation": explanation.get("explanation"),
             "explanation_text": explanation.get("explanation"),      
             "ai_explanation": explanation.get("explanation"),        
             "ai_reason": explanation.get("explanation"),
 
-            "explanation": explanation.get("explanation"),
             "confidence_label": explanation.get("confidence_label"),
             "recommended_action": explanation.get("recommended_action"),
             "failure_risk": explanation.get("failure_risk"),
@@ -396,7 +443,14 @@ async def get_complaint_status(complaint_id: str):
     """
     Citizens check their complaint status using their ID.
     """
-    result = await tracking_agent.get_public_status(complaint_id)
+    result = await self_correction_agent.execute_with_correction(
+        agent_name="TrackingAgent",
+        agent_func=tracking_agent.get_public_status,
+        required_keys=["complaint"],
+        complaint_id=complaint_id
+    )
+    if result.get("_fallback_used"):
+        result = await tracking_agent.get_public_status(complaint_id)
     return JSONResponse(result)
 
 
@@ -480,9 +534,17 @@ async def update_complaint_status(
     """
     Officials update the status of a complaint.
     """
-    result = await tracking_agent.update_status(
-        complaint_id, new_status, update_note, updated_by
+    result = await self_correction_agent.execute_with_correction(
+        agent_name="TrackingAgent_Update",
+        agent_func=tracking_agent.update_status,
+        required_keys=["success"],
+        complaint_id=complaint_id,
+        new_status=new_status,
+        update_note=update_note,
+        updated_by=updated_by
     )
+    if result.get("_fallback_used"):
+        result = await tracking_agent.update_status(complaint_id, new_status, update_note, updated_by)
     return JSONResponse(result)
 
 
@@ -509,7 +571,7 @@ async def get_dashboard_data():
             if eid:
                 complaint_dict[eid] = e
 
-        # This gives your true, deduplicated list (Total = 4)
+        # This gives your true, deduplicated list
         combined_view = list(complaint_dict.values())
 
         total = len(combined_view)
@@ -560,8 +622,8 @@ async def get_dashboard_data():
         return JSONResponse({
             "success": True,
             "stats": {
-                "total_complaints": total,                             # Will reflect exact 4
-                "total_emergencies": len(emergencies),                 # Will reflect exact 1
+                "total_complaints": total,
+                "total_emergencies": len(emergencies),
                 "by_status": by_status,
                 "by_department": by_dept,
                 "by_priority": by_priority,
@@ -599,9 +661,17 @@ async def submit_feedback(
     citizen_name: str = Form(...)
 ):
     """Citizen submits feedback after resolution."""
-    result = await feedback_agent.submit_feedback(
-        complaint_id, rating, comment, citizen_name
+    result = await self_correction_agent.execute_with_correction(
+        agent_name="FeedbackAgent",
+        agent_func=feedback_agent.submit_feedback,
+        required_keys=["success"],
+        complaint_id=complaint_id,
+        rating=rating,
+        comment=comment,
+        citizen_name=citizen_name
     )
+    if result.get("_fallback_used"):
+        result = await feedback_agent.submit_feedback(complaint_id, rating, comment, citizen_name)
     return JSONResponse(result)
 
 
@@ -625,6 +695,7 @@ async def get_public_ratings():
     except Exception as e:
         print(f"[Backend Ratings Exception]: {e}")
         return JSONResponse({"success": False, "error": str(e)}, status_code=500)
+
 
 # ═══════════════════════════════════════════════════════
 # QUERY ENDPOINT (Citizen Q&A)
@@ -668,14 +739,21 @@ CITIZEN QUESTION: "{question}"
 Please cross-reference this ticket telemetry directly in your answer to give the citizen specific tracking clarity.
 """
             else:
-                # If they typed an ID but it wasn't found, let the model guide them gently
                 master_prompt += f"\nNote: The user provided a complaint ID '{clean_id}', but it does not exist in our database systems yet. Advise them politely to check the spelling."
 
         master_prompt += "\nProvide a helpful, polite, professional, and highly specific response to the citizen's question. Avoid generic responses."
 
-        # Generate text using the global client wrapper
-        ai_response = generate_text(master_prompt)
-        
+        # Self-Correcting text generator call
+        ai_response = await self_correction_agent.execute_with_correction(
+            agent_name="QueryAgent",
+            agent_func=generate_text,
+            min_text_length=15,
+            prompt=master_prompt
+        )
+
+        if isinstance(ai_response, dict):
+            ai_response = "I am ready to assist you with any questions regarding city services or your complaint status."
+
         return {
             "success": True, 
             "answer": ai_response.strip()
@@ -687,6 +765,154 @@ Please cross-reference this ticket telemetry directly in your answer to give the
             "success": False, 
             "answer": "I am experiencing temporary technical difficulties retrieving specific civic details right now. Please try again shortly."
         }
+
+import asyncio
+import json
+from fastapi.responses import StreamingResponse
+
+@app.post("/api/complaints/submit-stream")
+async def submit_complaint_stream(
+    complaint_text: str = Form(...),
+    location: str = Form(...),
+    citizen_name: str = Form(...),
+    citizen_contact: str = Form(...),
+    image: UploadFile = File(None)
+):
+    """
+    Real Event Stream: Executes each agent sequentially and yields live intermediate telemetry!
+    """
+    async def pipeline_generator():
+        try:
+            # 0. Read Image
+            image_bytes = await image.read() if image and image.filename else None
+            complaint_id = "CM" + str(uuid.uuid4())[:6].upper()
+
+            # ── AGENT 1: Classification ──
+            yield f"data: {json.dumps({'stage': 'classification', 'status': 'running', 'message': 'Agent 1: Scanning issue type & safety risks...'})}\n\n"
+            classification = await self_correction_agent.execute_with_correction(
+                agent_name="ClassificationAgent",
+                agent_func=classification_agent.classify,
+                required_keys=["type"],
+                complaint_text=complaint_text,
+                image_bytes=image_bytes
+            )
+            if classification.get("_fallback_used"):
+                classification = await classification_agent.classify(complaint_text, image_bytes)
+
+            yield f"data: {json.dumps({'stage': 'classification', 'status': 'done', 'data': classification})}\n\n"
+
+            # Emergency Check
+            if str(classification.get("type", "")).upper() == "EMERGENCY":
+                emergency_record = {
+                    "id": complaint_id,
+                    "complaint_id": complaint_id,
+                    "type": "emergency",
+                    "original_complaint": complaint_text,
+                    "problem": complaint_text,
+                    "location": location,
+                    "citizen_name": citizen_name,
+                    "citizen_contact": citizen_contact,
+                    "status": "emergency_escalated",
+                    "priority_level": "critical",
+                    "department": "Emergency",
+                    "created_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S")
+                }
+                db.collection('emergencies').document(complaint_id).set(emergency_record)
+                db.collection('complaints').document(complaint_id).set(emergency_record)
+                yield f"data: {json.dumps({'stage': 'complete', 'type': 'emergency', 'complaint_id': complaint_id, 'data': emergency_record})}\n\n"
+                return
+
+            # ── AGENT 2: Intake ──
+            yield f"data: {json.dumps({'stage': 'intake', 'status': 'running', 'message': 'Agent 2: Parsing severity, issue type & location...'})}\n\n"
+            intake = await self_correction_agent.execute_with_correction(
+                agent_name="IntakeAgent",
+                agent_func=intake_agent.process,
+                required_keys=["department", "specific_problem", "severity_score"],
+                complaint_text=complaint_text,
+                location=location,
+                image_bytes=image_bytes
+            )
+            if intake.get("_fallback_used"):
+                intake = await intake_agent.process(complaint_text, location, image_bytes)
+
+            yield f"data: {json.dumps({'stage': 'intake', 'status': 'done', 'data': intake})}\n\n"
+
+            # ── AGENT 3: Intelligence ──
+            yield f"data: {json.dumps({'stage': 'intelligence', 'status': 'running', 'message': 'Agent 3: Analyzing root cause & historical links...'})}\n\n"
+            intelligence = await self_correction_agent.execute_with_correction(
+                agent_name="IntelligenceAgent",
+                agent_func=intelligence_agent.analyze,
+                required_keys=["root_cause"],
+                intake_data=intake
+            )
+            if intelligence.get("_fallback_used"):
+                intelligence = await intelligence_agent.analyze(intake)
+
+            yield f"data: {json.dumps({'stage': 'intelligence', 'status': 'done', 'data': intelligence})}\n\n"
+
+            # ── AGENT 5: Prioritization & Budget ──
+            yield f"data: {json.dumps({'stage': 'prioritization', 'status': 'running', 'message': 'Agent 5: Computing priority score & budget bounds...'})}\n\n"
+            priority_result = await self_correction_agent.execute_with_correction(
+                agent_name="PrioritizationAgent",
+                agent_func=prioritization_agent.prioritize,
+                required_keys=["priority_score", "priority_level", "budget"],
+                intake_data=intake,
+                intelligence_data=intelligence
+            )
+            if priority_result.get("_fallback_used"):
+                priority_result = await prioritization_agent.prioritize(intake, intelligence)
+
+            yield f"data: {json.dumps({'stage': 'prioritization', 'status': 'done', 'data': priority_result})}\n\n"
+
+            # ── AGENT 4: Explainability ──
+            yield f"data: {json.dumps({'stage': 'explainability', 'status': 'running', 'message': 'Agent 4: Formatting decision explanation...'})}\n\n"
+            explanation = await self_correction_agent.execute_with_correction(
+                agent_name="ExplainabilityAgent",
+                agent_func=explainability_agent.explain,
+                required_keys=["explanation"],
+                intake_data=intake,
+                intelligence_data=intelligence,
+                priority_score=priority_result.get("priority_score", 50)
+            )
+            if explanation.get("_fallback_used"):
+                explanation = await explainability_agent.explain(intake, intelligence, priority_result.get("priority_score", 50))
+
+            yield f"data: {json.dumps({'stage': 'explainability', 'status': 'done', 'data': explanation})}\n\n"
+
+            # Final Database Persistence
+            budget = priority_result.get("budget", {})
+            final_dept = (classification.get("department") or intake.get("department") or "Other").strip().title()
+            final_priority = (priority_result.get("priority_level") or "medium").strip().lower()
+
+            complaint_record = {
+                "id": complaint_id,
+                "created_at": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
+                "citizen_name": citizen_name,
+                "citizen_contact": citizen_contact,
+                "original_complaint": complaint_text,
+                "location": location,
+                "department": final_dept,
+                "priority_level": final_priority,
+                "priority_score": priority_result.get("priority_score"),
+                "budget_range": budget.get("budget_range", "Under Review"),
+                "budget_min": budget.get("minimum_cost", 0),
+                "budget_max": budget.get("maximum_cost", 0),
+                "root_cause": intelligence.get("root_cause", {}),
+                "cross_dept_links": intelligence.get("cross_dept_links", {}),
+                "explanation": explanation.get("explanation"),
+                "recommended_action": explanation.get("recommended_action"),
+                "self_corrected": classification.get("_self_corrected", False) or intake.get("_self_corrected", False) or priority_result.get("_self_corrected", False),
+                "status": "submitted"
+            }
+
+            db.collection('complaints').document(complaint_id).set(complaint_record)
+
+            yield f"data: {json.dumps({'stage': 'complete', 'status': 'success', 'complaint_id': complaint_id, 'data': complaint_record})}\n\n"
+
+        except Exception as err:
+            yield f"data: {json.dumps({'stage': 'error', 'message': str(err)})}\n\n"
+
+    return StreamingResponse(pipeline_generator(), media_type="text/event-stream")
 # ═══════════════════════════════════════════════════════
 # OUTCOME VERIFICATION
 # ═══════════════════════════════════════════════════════
@@ -830,7 +1056,6 @@ async def serve_frontend(catchall: str):
     if os.path.exists(index_path):
         return FileResponse(index_path)
     return {"error": "Frontend build files missing. Make sure dist folder is uploaded."}
-
 
 
     
