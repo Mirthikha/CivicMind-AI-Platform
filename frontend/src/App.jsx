@@ -210,15 +210,12 @@ function Shell({ type = "citizen", children }) {
   const isOfficial = type === "official";
   const user = isOfficial ? official : citizen;
 
-  // 1. Safe extraction with optional chaining to prevent crash states
   const currentDept = official?.department || "";
 
-  // 2. Build link routing dynamically without broken variables
   const links = isOfficial
     ? [
         ["/official/dashboard", "Dashboard"],
         ["/official/complaints", "Complaints"],
-        // Hide the department view tab ONLY for the supervising Admin account
         ...(currentDept && currentDept !== "All Departments" && currentDept !== "All" 
           ? [["/official/department", "Department"]] 
           : []),
@@ -241,9 +238,17 @@ function Shell({ type = "citizen", children }) {
   return (
     <div className="app-shell">
       <nav className="navbar">
-        <Link className="brand brand-dark" to={isOfficial ? "/official/dashboard" : "/citizen/dashboard"}>
-          <Building2 size={24} /> CivicMind{isOfficial ? " Officials" : ""}
+        {/* BRAND & DEPARTMENT SUBTITLE */}
+        <Link className="brand brand-dark brand-column" to={isOfficial ? "/official/dashboard" : "/citizen/dashboard"}>
+          <div className="brand-header">
+            <Building2 size={24} /> <span>CivicMind{isOfficial ? " Officials" : ""}</span>
+          </div>
+          {isOfficial && user?.department && (
+            <span className="brand-subtitle">({user.department})</span>
+          )}
         </Link>
+
+        {/* NAVIGATION LINKS */}
         <div className="nav-links">
           {links.map(([to, label]) => (
             <Link key={to} className={location.pathname === to ? "active" : ""} to={to}>
@@ -251,9 +256,11 @@ function Shell({ type = "citizen", children }) {
             </Link>
           ))}
         </div>
+
+        {/* USER PROFILE */}
         <div className="nav-profile">
           <User size={17} />
-          <span>{user?.name || "User"}{isOfficial && user?.department ? ` (${user.department})` : ""}</span>
+          <span>{user?.name || "City Official"}</span>
           <button className="icon-btn" onClick={logout} title="Logout">
             <LogOut size={18} />
           </button>

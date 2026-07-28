@@ -182,3 +182,30 @@
     border-right-color: var(--border);
   }
 }
+
+
+/* Stack logo title and subtitle vertically */
+.brand-column {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-decoration: none;
+  gap: 2px;
+}
+
+/* Align icon and logo text horizontally */
+.brand-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 1.25rem;
+}
+
+/* Department text under the logo */
+.brand-subtitle {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: #64748b; /* Muted gray tone */
+  padding-left: 32px; /* Aligns visually under the text instead of under the icon */
+}
