@@ -133,40 +133,6 @@ function RootCauseNode({ data }) {
 
 const nodeTypes = { complaint: ComplaintNode, root_cause: RootCauseNode };
 
-function calculateLayout(rawNodes, rawEdges) {
-  const rootCauses = rawNodes.filter(n => n.type === 'root_cause');
-  const complaints  = rawNodes.filter(n => n.type === 'complaint');
-  const layoutNodes = [];
-  const SPACING_X = 280;
-
-  rootCauses.forEach((rc, i) => {
-    const centerX = i * SPACING_X * 2.5;
-    layoutNodes.push({ id: rc.id, type: 'root_cause', position: { x: centerX, y: 300 }, data: rc });
-    const connectedIds = rawEdges.filter(e => e.to === rc.id).map(e => e.from);
-    const connected = complaints.filter(c => connectedIds.includes(c.id));
-
-    connected.forEach((c, j) => {
-      const offset = (j - (connected.length - 1) / 2) * SPACING_X;
-      layoutNodes.push({ id: c.id, type: 'complaint', position: { x: centerX + offset, y: 50 + j * 20 }, data: c });
-    });
-  });
-
-  const placedIds = new Set(layoutNodes.map(n => n.id));
-  const isolated  = complaints.filter(c => !placedIds.has(c.id));
-  isolated.forEach((c, i) => {
-    layoutNodes.push({ id: c.id, type: 'complaint', position: { x: i * SPACING_X, y: 580 }, data: c });
-  });
-
-  const layoutEdges = rawEdges.map((e, i) => ({
-    id: `edge-${i}`, source: e.from, target: e.to, label: e.label, type: 'smoothstep', animated: true,
-    markerEnd: { type: MarkerType.ArrowClosed, color: '#805AD5' },
-    style: { stroke: '#805AD5', strokeWidth: 2 },
-    labelStyle: { fontSize: 10, fill: '#805AD5', fontWeight: 600 }
-  }));
-
-  return { layoutNodes, layoutEdges };
-}
-
 export default function CrossDeptGraph() {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
