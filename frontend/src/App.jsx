@@ -920,7 +920,7 @@ function OfficialDashboard() {
       })
       .catch(() => {
         setData({
-          complaints: [],
+          complaints: fallbackComplaints,
           emergencies: [],
           stats: {}
         });
@@ -930,10 +930,28 @@ function OfficialDashboard() {
 
   if (loading) return <Shell type="official"><LoadingBlock /></Shell>;
 
+  const emergenciesList = data.emergencies && data.emergencies.length > 0 
+    ? data.emergencies 
+    : data.complaints.filter((item) => (item.priority_level || item.priority || "").toLowerCase() === "critical");
+
+  // Compute Department-wise Complaint Breakdown
+  const deptCounts = data.complaints.reduce((acc, item) => {
+    const dept = item.department || "General";
+    acc[dept] = (acc[dept] || 0) + 1;
+    return acc;
+  }, {});
+
+  const pieChartData = Object.keys(deptCounts).map((dept) => ({
+    name: dept,
+    value: deptCounts[dept]
+  }));
+
+  const COLORS = ["#6366f1", "#06b6d4", "#f59e0b", "#10b981", "#ec4899", "#8b5cf6"];
+
   return (
     <Shell type="official">
       {/* 🚨 HIGH-VISIBILITY RED EMERGENCY ALERT BANNER */}
-      {data.emergencies && data.emergencies.length > 0 && (
+      {emergenciesList.length > 0 && (
         <section 
           className="emergency-banner" 
           style={{ 
@@ -962,17 +980,17 @@ function OfficialDashboard() {
           </div>
           <div>
             <strong style={{ fontSize: "20px", display: "block", color: "#fef2f2", letterSpacing: "0.5px" }}>
-              🚨 CRITICAL ALERT: {data.emergencies.length} ACTIVE LIFE-THREATENING EMERGENCY UNRESOLVED
+              🚨 CRITICAL ALERT: {emergenciesList.length} ACTIVE LIFE-THREATENING EMERGENCY UNRESOLVED
             </strong>
             <span style={{ fontSize: "15px", color: "#fca5a5", marginTop: "4px", display: "block" }}>
-              Immediate Dispatch Required For Ticket IDs: {data.emergencies.map((item) => item.id || item.complaint_id).join(", ")}
+              Immediate Dispatch Required For Ticket IDs: {emergenciesList.map((item) => item.id || item.complaint_id).join(", ")}
             </span>
           </div>
         </section>
       )}
 
       {/* 📊 Metrics Stat Cards */}
-      <div className="stats-grid">
+      <div className="stats-grid" style={{ marginBottom: "28px" }}>
         <StatCard 
           title="Total Complaints" 
           value={data.stats?.total_complaints ?? data.complaints.length} 
@@ -980,12 +998,12 @@ function OfficialDashboard() {
         />
         <StatCard 
           title="Emergencies" 
-          value={data.stats?.total_emergencies ?? data.emergencies.length} 
+          value={data.stats?.total_emergencies ?? emergenciesList.length} 
           tone="red" 
         />
         <StatCard 
           title="Critical" 
-          value={data.stats?.by_priority?.critical ?? data.complaints.filter((item) => (item.priority_level || item.priority || "").toLowerCase() === "critical").length} 
+          value={data.stats?.by_priority?.critical ?? emergenciesList.length} 
           tone="orange" 
         />
         <StatCard 
@@ -994,6 +1012,55 @@ function OfficialDashboard() {
           tone="green" 
         />
       </div>
+
+      {/* 🥧 DEPARTMENT-WISE PIE CHART */}
+      <div style={{ 
+        background: "white", 
+        padding: "24px", 
+        borderRadius: "16px", 
+        boxShadow: "0 4px 12px rgba(0,0,0,0.05)", 
+        marginBottom: "28px",
+        textAlign: "left"
+      }}>
+        <h3 style={{ fontSize: "18px", fontWeight: "bold", color: "#0f172a", marginBottom: "16px" }}>
+          📊 Department-wise Complaints Breakdown
+        </h3>
+        
+        {pieChartData.length > 0 ? (
+          <div style={{ width: "100%", height: "300px" }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieChartData}
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  fill="#8884d8"
+                  dataKey="value"
+                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                >
+                  {pieChartData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value, name) => [`${value} complaints`, name]} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <p style={{ color: "#64748b", fontSize: "14px" }}>No department complaint data available.</p>
+        )}
+      </div>
+
+      {/* 🚨 EMERGENCY COMPLAINTS DETAILED TABLE */}
+      {emergenciesList.length > 0 && (
+        <div style={{ textAlign: "left", marginTop: "12px" }}>
+          <h2 style={{ fontSize: "20px", fontWeight: "bold", color: "#991b1b", marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <AlertTriangle size={22} color="#dc2626" /> Critical Emergency Queue
+          </h2>
+          <ComplaintTable complaints={emergenciesList} compact={true} />
+        </div>
+      )}
     </Shell>
   );
 }
@@ -1381,7 +1448,7 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
                           className="button button-soft small" 
                           onClick={() => setLocalExpanded(isRowExpanded ? "" : item.id)}
                         >
-                          {isRowExpanded ? "Hide AI" : "Inspect AI"}
+                          {isRowExpanded ? "Hide Details" : "Details"}
                         </button>
                         <button 
                           className="button button-dark small" 
