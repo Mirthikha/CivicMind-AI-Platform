@@ -1344,6 +1344,7 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
           {complaints.map((item) => {
             const isRowExpanded = localExpanded === item.id;
             const isEmergency = (item.priority_level || item.priority || "").toLowerCase() === "critical";
+            const priorityVal = (item.priority_level || item.priority || "").toLowerCase();
             
             return (
               <Fragment key={item.id}>
@@ -1366,8 +1367,12 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
                   </td>
                   <td style={{ wordBreak: "break-word" }}>{item.location}</td>
                   <td><Badge tone={isEmergency ? "danger" : "info"}>{item.department}</Badge></td>
-                  <td><Badge tone="danger">CRITICAL</Badge></td>
-                  <td>{item.budget_range || "N/A"}</td>
+                  <td>
+                    <Badge tone={priorityTone(priorityVal)}>
+                      {priorityLabels[priorityVal] || item.priority || "Low"}
+                    </Badge>
+                  </td>
+                  <td>{item.budget_range || item.budget || "N/A"}</td>
                   <td><Badge tone={statusColors[item.status] || "muted"}>{statusLabels[item.status] || item.status}</Badge></td>
                   {!compact && (
                     <td>
@@ -1378,14 +1383,12 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
                         >
                           {isRowExpanded ? "Hide AI" : "Inspect AI"}
                         </button>
-                        {onUpdate && (
-                          <button 
-                            className="button button-dark small" 
-                            onClick={() => onUpdate(item)}
-                          >
-                            Status
-                          </button>
-                        )}
+                        <button 
+                          className="button button-dark small" 
+                          onClick={() => onUpdate && onUpdate(item)}
+                        >
+                          Status
+                        </button>
                       </div>
                     </td>
                   )}
