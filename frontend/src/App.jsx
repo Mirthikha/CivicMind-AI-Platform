@@ -1326,11 +1326,18 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
   const [localExpanded, setLocalExpanded] = useState("");
 
   return (
-    <div className="table-card">
-      <table>
+    <div className="table-card" style={{ overflowX: "auto" }}>
+      <table style={{ width: "100%", tableLayout: "auto" }}>
         <thead>
           <tr>
-            <th>ID</th><th>Problem</th><th>Location</th><th>Dept</th><th>Priority</th><th>Budget</th><th>Status</th>{!compact && <th>Actions</th>}
+            <th style={{ width: "130px", whiteSpace: "nowrap" }}>ID</th>
+            <th style={{ minWidth: "280px", maxWidth: "450px" }}>Problem</th>
+            <th>Location</th>
+            <th>Dept</th>
+            <th>Priority</th>
+            <th>Budget</th>
+            <th>Status</th>
+            {!compact && <th>Actions</th>}
           </tr>
         </thead>
         <tbody>
@@ -1341,15 +1348,23 @@ function ComplaintTable({ complaints, onUpdate, compact = false }) {
             return (
               <Fragment key={item.id}>
                 <tr style={isEmergency ? { backgroundColor: "rgba(254, 226, 226, 0.4)", borderLeft: "4px solid #dc2626" } : {}}>
-                  <td>
-                    <span className="id-badge" style={isEmergency ? { backgroundColor: "#dc2626", color: "#fff" } : {}}>
+                  <td style={{ width: "130px", whiteSpace: "nowrap", verticalAlign: "top" }}>
+                    <span className="id-badge" style={isEmergency ? { backgroundColor: "#dc2626", color: "#fff", display: "inline-block", whiteSpace: "nowrap" } : {}}>
                       {isEmergency ? "🚨 " : ""}{item.id}
                     </span>
                   </td>
-                  <td style={isEmergency ? { fontWeight: "bold", color: "#991b1b" } : {}}>
+                  <td style={{ 
+                    minWidth: "280px", 
+                    maxWidth: "450px", 
+                    wordBreak: "break-word", 
+                    whiteSpace: "normal", 
+                    lineHeight: "1.4",
+                    fontWeight: isEmergency ? "bold" : "normal",
+                    color: isEmergency ? "#991b1b" : "inherit"
+                  }}>
                     {item.original_complaint || item.problem || item.specific_problem}
                   </td>
-                  <td>{item.location}</td>
+                  <td style={{ wordBreak: "break-word" }}>{item.location}</td>
                   <td><Badge tone={isEmergency ? "danger" : "info"}>{item.department}</Badge></td>
                   <td><Badge tone="danger">CRITICAL</Badge></td>
                   <td>{item.budget_range || "N/A"}</td>
